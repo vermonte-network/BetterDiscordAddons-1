@@ -3,8 +3,9 @@
 var OwnerTag = (_ => {
 	const userTypes = {
 		NONE: 0,
-		ADMIN: 1,
-		OWNER: 2
+		MANAGEMENT: 1,
+		ADMIN: 2,
+		OWNER: 3
 	};
 	
 	var settings = {}, inputs = {};
@@ -12,15 +13,16 @@ var OwnerTag = (_ => {
 	return class OwnerTag {
 		getName () {return "OwnerTag";}
 
-		getVersion () {return "1.3.0";}
+		getVersion () {return "1.3.3";}
 
 		getAuthor () {return "DevilBro";}
 
-		getDescription () {return "Adds a Tag like Bottags to the Serverowner.";}
+		getDescription () {return "Adds a tag or crown to the server owner (or admins/management).";}
 
 		constructor () {
 			this.changelog = {
-				"fixed":[["BotTag","BotTag style is now properly inverted on the userpopout if the user is playing a game etc."]]
+				"added":[["Management Crown/Tag","Added a third tag for people with the server/channel/role management permission"]],
+				"improved":[["Management Tag","Tag now shows for all kinds of management perms and the type of management is displayed in the tooltip"]]
 			};
 
 			this.patchedModules = {
@@ -35,8 +37,11 @@ var OwnerTag = (_ => {
 
 		initConstructor () {
 			this.css = `
-				${BDFDB.dotCN.memberownericon}.admin-crown {
-					color: #b3b3b3;
+				${BDFDB.dotCN.memberownericon + BDFDB.dotCN._ownertagadminicon} {
+					color: #c0c0c0;
+				}
+				${BDFDB.dotCN.memberownericon + BDFDB.dotCN._ownertagmanagementicon} {
+					color: #ef7f32;
 				}
 				${BDFDB.dotCNS.message + BDFDB.dotCN.memberownericon} {
 					top: 2px;
@@ -58,58 +63,84 @@ var OwnerTag = (_ => {
 					addInMemberList:		{value:true, 	inner:true,		description:"Member List"},
 					addInUserPopout:		{value:true, 	inner:true,		description:"User Popouts"},
 					addInUserProfile:		{value:true, 	inner:true,		description:"User Profile Modal"},
-					useRoleColor:			{value:true, 	inner:false,	description:"Use the Rolecolor instead of the default blue."},
-					useBlackFont:			{value:false, 	inner:false,	description:"Instead of darkening the Rolecolor on bright colors use black font."},
-					useCrown:				{value:false, 	inner:false,	description:"Use the Crown Icon instead of the OwnerTag."},
-					hideNativeCrown:		{value:true, 	inner:false,	description:"Hide the native Crown Icon (not the Plugin one)."},
-					addForAdmins:			{value:false, 	inner:false,	description:"Also add an Admin Tag for any user with Admin rights."},
-					ignoreBotAdmins:		{value:false, 	inner:false,	description:"Do not add the Admin tag for bots with Admin rights."}
+					useRoleColor:			{value:true, 	inner:false,	description:"Use the Rolecolor instead of the default blue"},
+					useBlackFont:			{value:false, 	inner:false,	description:"Instead of darkening the Rolecolor on bright colors use black font"},
+					useCrown:				{value:false, 	inner:false,	description:"Use the Crown Icon instead of the Bot Tag Style"},
+					hideNativeCrown:		{value:true, 	inner:false,	description:"Hide the native Crown Icon (not the Plugin one)"},
+					addForAdmins:			{value:false, 	inner:false,	description:"Add an Admin Tag for users with admin permissions"},
+					addForManagement:		{value:false, 	inner:false,	description:"Add a Management Tag for users with management permissions"},
+					ignoreBotAdmins:		{value:false, 	inner:false,	description:"Do not add the Admin/Management tag for bots"}
 				},
 				inputs: {
-					ownTagName:				{value:"Owner", 	description:"Owner Tag Text for Owners"},
-					ownAdminTagName:		{value:"Admin", 	description:"Owner Tag Text for Admins"}
+					ownTagName:				{value:"Owner", 		description:"Tag Text for Owners"},
+					ownAdminTagName:		{value:"Admin", 		description:"Tag Text for Admins"},
+					ownManagementTagName:	{value:"Management", 	description:"Tag Text for Management"}
 				}
 			};
 		}
 
-		getSettingsPanel () {
+		getSettingsPanel (collapseStates = {}) {
 			if (!window.BDFDB || typeof BDFDB != "object" || !BDFDB.loaded || !this.started) return;
-			let settings = BDFDB.DataUtils.get(this, "settings");
-			let inputs = BDFDB.DataUtils.get(this, "inputs");
 			let settingsPanel, settingsItems = [], innerItems = [];
 			
-			for (let key in inputs) settingsItems.push(BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.SettingsSaveItem, {
-				className: BDFDB.disCN.marginbottom8,
-				type: "TextInput",
-				plugin: this,
-				keys: ["inputs", key],
-				label: this.defaults.inputs[key].description,
-				basis: "50%",
-				value: inputs[key]
+			settingsItems.push(BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.CollapseContainer, {
+				title: "Settings",
+				collapseStates: collapseStates,
+				children: Object.keys(settings).map(key => !this.defaults.settings[key].inner && BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.SettingsSaveItem, {
+					className: BDFDB.disCN.marginbottom8,
+					type: "Switch",
+					plugin: this,
+					key: key,
+					disabled: key == "hideNativeCrown" && settings.useCrown,
+					keys: ["settings", key],
+					label: this.defaults.settings[key].description,
+					value: settings[key],
+					onChange: key == "useCrown" ? (value, instance) => {
+						let hideNativeCrownInstance = BDFDB.ReactUtils.findOwner(instance._reactInternalFiber.return, {key: "hideNativeCrown"});
+						if (hideNativeCrownInstance) {
+							hideNativeCrownInstance.props.disabled = value;
+							BDFDB.ReactUtils.forceUpdate(hideNativeCrownInstance);
+						}
+					} : null
+				}))
 			}));
-			settingsItems.push(BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.FormComponents.FormDivider, {
-				className: BDFDB.disCN.marginbottom8
+			settingsItems.push(BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.CollapseContainer, {
+				title: "Tag Settings",
+				collapseStates: collapseStates,
+				children: [BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.FormComponents.FormTitle, {
+					className: BDFDB.disCN.marginbottom4,
+					tag: BDFDB.LibraryComponents.FormComponents.FormTitle.Tags.H3,
+					children: "Add Tags in:"
+				})].concat(Object.keys(settings).map(key => this.defaults.settings[key].inner && BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.SettingsSaveItem, {
+					className: BDFDB.disCN.marginbottom8,
+					type: "Switch",
+					plugin: this,
+					keys: ["settings", key],
+					label: this.defaults.settings[key].description,
+					value: settings[key]
+				})))
 			}));
-			for (let key in settings) (!this.defaults.settings[key].inner ? settingsItems : innerItems).push(BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.SettingsSaveItem, {
-				className: BDFDB.disCN.marginbottom8,
-				type: "Switch",
-				plugin: this,
-				keys: ["settings", key],
-				label: this.defaults.settings[key].description,
-				value: settings[key]
-			}));
-			settingsItems.push(BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.SettingsPanelInner, {
-				title: "Add Owner Tag in:",
-				first: settingsItems.length == 0,
-				last: true,
-				children: innerItems
+			settingsItems.push(BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.CollapseContainer, {
+				title: "Tag Text Settings",
+				collapseStates: collapseStates,
+				children: Object.keys(inputs).map(key => BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.SettingsSaveItem, {
+					className: BDFDB.disCN.marginbottom8,
+					type: "TextInput",
+					plugin: this,
+					keys: ["inputs", key],
+					label: this.defaults.inputs[key].description,
+					basis: "50%",
+					value: inputs[key]
+				}))
 			}));
 			
 			return settingsPanel = BDFDB.PluginUtils.createSettingsPanel(this, settingsItems);
 		}
 
 		// Legacy
-		load () {}
+		load () {
+			if (window.BDFDB && typeof BDFDB === "object" && BDFDB.loaded) BDFDB.PluginUtils.load(this);
+		}
 
 		start () {
 			if (!window.BDFDB) window.BDFDB = {myPlugins:{}};
@@ -229,20 +260,46 @@ var OwnerTag = (_ => {
 			}
 			let channel = BDFDB.LibraryModules.ChannelStore.getChannel(BDFDB.LibraryModules.LastChannelStore.getChannelId());
 			let member = settings.useRoleColor ? (BDFDB.LibraryModules.MemberStore.getMember(channel.guild_id, user.id) || {}) : {};
-			let isOwner = userType == userTypes.OWNER;
 			let tag = null;
 			if (settings.useCrown) {
-				let label = isOwner ? (channel.type == BDFDB.DiscordConstants.ChannelTypes.GROUP_DM ? BDFDB.LanguageUtils.LanguageStrings.GROUP_OWNER : BDFDB.LanguageUtils.LanguageStrings.GUILD_OWNER) : BDFDB.LanguageUtils.LanguageStrings.ADMINISTRATOR;
+				let label, className;
+				switch (userType) {
+					case userTypes.OWNER:
+						label = channel.type == BDFDB.DiscordConstants.ChannelTypes.GROUP_DM ? BDFDB.LanguageUtils.LanguageStrings.GROUP_OWNER : BDFDB.LanguageUtils.LanguageStrings.GUILD_OWNER;
+						className = BDFDB.disCN._ownertagownericon;
+						break;
+					case userTypes.ADMIN:
+						label = BDFDB.LanguageUtils.LanguageStrings.ADMINISTRATOR;
+						className = BDFDB.disCN._ownertagadminicon;
+						break;
+					case userTypes.MANAGEMENT:
+						label = `${this.labels.management_text} (${[BDFDB.UserUtils.can("MANAGE_GUILD", user.id) && BDFDB.LanguageUtils.LibraryStrings.server, BDFDB.UserUtils.can("MANAGE_CHANNELS", user.id) && BDFDB.LanguageUtils.LanguageStrings.CHANNELS, BDFDB.UserUtils.can("MANAGE_ROLES", user.id) && BDFDB.LanguageUtils.LanguageStrings.ROLES].filter(n => n).join(", ")})`;
+						className = BDFDB.disCN._ownertagmanagementicon;
+						break;
+				}
 				tag = BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.TooltipContainer, {
 					text: label,
 					children: BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.SvgIcon, {
-						className: BDFDB.disCNS.memberownericon + (isOwner ? "owner-crown" : "admin-crown"),
+						className: BDFDB.DOMUtils.formatClassName(BDFDB.disCN.memberownericon, className),
 						name: BDFDB.LibraryComponents.SvgIcon.Names.CROWN,
 						"aria-label": label
 					})
 				});
 			}
 			else {
+				let input, label;
+				switch (userType) {
+					case userTypes.OWNER:
+						input = "ownTagName";
+						break;
+					case userTypes.ADMIN:
+						input = "ownAdminTagName";
+						break;
+					case userTypes.MANAGEMENT:
+						input = "ownManagementTagName";
+						label = [BDFDB.UserUtils.can("MANAGE_GUILD", user.id) && BDFDB.LanguageUtils.LibraryStrings.server, BDFDB.UserUtils.can("MANAGE_CHANNELS", user.id) && BDFDB.LanguageUtils.LanguageStrings.CHANNELS, BDFDB.UserUtils.can("MANAGE_ROLES", user.id) && BDFDB.LanguageUtils.LanguageStrings.ROLES].filter(n => n).join(", ");
+						break;
+				}
 				let tagColor = BDFDB.ColorUtils.convert(member.colorString, "RGBA");
 				let isBright = BDFDB.ColorUtils.isBright(tagColor);
 				tagColor = isBright ? (settings.useBlackFont ? tagColor : BDFDB.ColorUtils.change(tagColor, -0.3)) : tagColor;
@@ -254,7 +311,11 @@ var OwnerTag = (_ => {
 						backgroundColor: config.inverted ? (isBright && settings.useBlackFont ? "black" : null) : tagColor,
 						color: !config.inverted ? (isBright && settings.useBlackFont ? "black" : null) : tagColor
 					},
-					tag: inputs[isOwner ? "ownTagName" : "ownAdminTagName"]
+					tag: inputs[input]
+				});
+				if (label) tag = BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.TooltipContainer, {
+					text: label,
+					children: tag
 				});
 			}
 			children.splice(insertIndex, 0, tag);
@@ -266,8 +327,10 @@ var OwnerTag = (_ => {
 			if (!channel) return userTypes.NONE;
 			let guild = BDFDB.LibraryModules.GuildStore.getGuild(channel.guild_id);
 			let isOwner = channel.ownerId == user.id || guild && guild.ownerId == user.id;
-			if (!(isOwner || (settings.addForAdmins && BDFDB.UserUtils.can("ADMINISTRATOR", user.id) && !(settings.ignoreBotAdmins && user.bot)))) return userTypes.NONE;
-			return isOwner ? userTypes.OWNER : userTypes.ADMIN;
+			if (isOwner) return userTypes.OWNER;
+			else if (settings.addForAdmins && BDFDB.UserUtils.can("ADMINISTRATOR", user.id) && !(settings.ignoreBotAdmins && user.bot)) return userTypes.ADMIN;
+			else if (settings.addForManagement && (BDFDB.UserUtils.can("MANAGE_GUILD", user.id) || BDFDB.UserUtils.can("MANAGE_CHANNELS", user.id) || BDFDB.UserUtils.can("MANAGE_ROLES", user.id)) && !(settings.ignoreBotAdmins && user.bot)) return userTypes.MANAGEMENT;
+			return userTypes.NONE;
 		}
 	
 		forceUpdateAll () {
@@ -276,6 +339,95 @@ var OwnerTag = (_ => {
 			
 			BDFDB.ModuleUtils.forceAllUpdates(this);
 			BDFDB.MessageUtils.rerenderAll();
+		}
+
+		setLabelsByLanguage () {
+			switch (BDFDB.LanguageUtils.getLanguage().id) {
+				case "hr":		//croatian
+					return {
+						management_text:					"Upravljanje"
+					};
+				case "da":		//danish
+					return {
+						management_text:					"Ledelse"
+					};
+				case "de":		//german
+					return {
+						management_text:					"Verwaltung"
+					};
+				case "es":		//spanish
+					return {
+						management_text:					"Administración"
+					};
+				case "fr":		//french
+					return {
+						management_text:					"Gestion"
+					};
+				case "it":		//italian
+					return {
+						management_text:					"Gestione"
+					};
+				case "nl":		//dutch
+					return {
+						management_text:					"Beheer"
+					};
+				case "no":		//norwegian
+					return {
+						management_text:					"Ledelse"
+					};
+				case "pl":		//polish
+					return {
+						management_text:					"Zarządzanie"
+					};
+				case "pt-BR":	//portuguese (brazil)
+					return {
+						management_text:					"Gestão"
+					};
+				case "fi":		//finnish
+					return {
+						management_text:					"Johto"
+					};
+				case "sv":		//swedish
+					return {
+						management_text:					"Förvaltning"
+					};
+				case "tr":		//turkish
+					return {
+						management_text:					"Yönetim"
+					};
+				case "cs":		//czech
+					return {
+						management_text:					"Řízení"
+					};
+				case "bg":		//bulgarian
+					return {
+						management_text:					"Управление"
+					};
+				case "ru":		//russian
+					return {
+						management_text:					"Управление"
+					};
+				case "uk":		//ukrainian
+					return {
+						management_text:					"Управління"
+					};
+				case "ja":		//japanese
+					return {
+						management_text:					"管理"
+					};
+				case "zh-TW":	//chinese (traditional)
+					return {
+						management_text:					"管理"
+					};
+				case "ko":		//korean
+					return {
+						management_text:					"관리"
+					};
+				default:		//default: english
+					return {
+						management_text:					"Management"
+					};
+			}
 		}
 	}
 })();

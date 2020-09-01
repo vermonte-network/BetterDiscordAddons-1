@@ -50,7 +50,7 @@ var ImageUtilities = (_ => {
 	return class ImageUtilities {
 		getName () {return "ImageUtilities";}
 
-		getVersion () {return "4.0.6";}
+		getVersion () {return "4.1.2";}
 
 		getAuthor () {return "DevilBro";}
 
@@ -58,10 +58,9 @@ var ImageUtilities = (_ => {
 
 		constructor () {
 			this.changelog = {
-				"progress":[["Welcome","This is the successor of ImageZoom, ImageGallery, ReverseImageSearch and ShowImageDetails. All of these plugins are now combined in one with even more useful features. Check out the plugin settings to configure the plugin the way you want it to work."]],
-				"added":[["Gallery Setting","You can now disable the gallery mode"]],
-				"improved":[["Zoom Controls","You can now zoom in/out with the +/- keys and the mousewheel while the zoomlense is present"]],
-				"fixed":[["Linux/Mac","Downloading now also works on Linux/Mac and the default folder is downloads folder now"]]
+				"added":[["Save Image as...","Added new option to open a save as prompt to the contextmenu and image modal, where you can choose the filename and path"]],
+				"improved":[["Open Original","Holding shift while pressing open original in the image modal will skip the trust modal"]],
+				"fixed":[["Trust Modal","No longer zooms into the image below the trust modal if you click the backdrop"]]
 			};
 			
 			this.patchedModules = {
@@ -78,12 +77,13 @@ var ImageUtilities = (_ => {
 				
 			this.defaults = {
 				settings: {
-					addDetails: 			{value:true,	inner:false,	description:"Add Image details (name, size, amount) in the Image Modal"},
-					showAsHeaader:			{value:true, 	inner:false,	description:"Show Image details as a details header above the Image in the chat"},
-					showOnHover:			{value:false, 	inner:false,	description:"Show Image details as Tooltip in the chat"},
-					enableGallery: 			{value:true,	inner:false,	description:"Displays previous/next Images in the same message in the Image Modal"},
-					enableZoom: 			{value:true,	inner:false,	description:"Creates a zoom lense if you press down on an Image in the Image Modal"},
-					enableCopyImg: 			{value:true,	inner:false,	description:"Add a copy Image option in the Image Modal"},
+					addDetails: 			{value:true,	inner:false,	description:"Add image details (name, size, amount) in the image modal"},
+					showAsHeader:			{value:true, 	inner:false,	description:"Show image details as a details header above the image in the chat"},
+					showOnHover:			{value:false, 	inner:false,	description:"Show image details as Tooltip in the chat"},
+					enableGallery: 			{value:true,	inner:false,	description:"Displays previous/next Images in the same message in the image modal"},
+					enableZoom: 			{value:true,	inner:false,	description:"Creates a zoom lense if you press down on an image in the image modal"},
+					enableCopyImg: 			{value:true,	inner:false,	description:"Add a copy image option in the image modal"},
+					enableSaveImg: 			{value:true,	inner:false,	description:"Add a save image as option in the image modal"},
 					useChromium: 			{value:false, 	inner:false,	description:"Use an inbuilt browser window instead of opening your default browser"},
 					addUserAvatarEntry: 	{value:true, 	inner:true,		description:"User Avatars"},
 					addGuildIconEntry: 		{value:true, 	inner:true,		description:"Server Icons"},
@@ -121,6 +121,9 @@ var ImageUtilities = (_ => {
 				${BDFDB.dotCNS.spoilerhidden + BDFDB.dotCN._imageutilitiesimagedetails} {
 					visibility: hidden;
 					max-width: 1px;
+				}
+				${BDFDB.dotCN.imagemodal}[style*="opacity: 0;"] > * {
+					display: none !important;
 				}
 				${BDFDB.dotCN._imageutilitiesdetailsadded}:not([style*="opacity: 0;"]) {
 					transform: unset !important;
@@ -258,7 +261,9 @@ var ImageUtilities = (_ => {
 		}
 
 		// Legacy
-		load () {}
+		load () {
+			if (window.BDFDB && typeof BDFDB === "object" && BDFDB.loaded) BDFDB.PluginUtils.load(this);
+		}
 
 		start () {
 			if (!window.BDFDB) window.BDFDB = {myPlugins:{}};
@@ -325,17 +330,11 @@ var ImageUtilities = (_ => {
 		}
 
 		onGuildContextMenu (e) {
-			if (e.instance.props.guild && e.instance.props.target) {
-				let guildIcon = BDFDB.DOMUtils.containsClass(e.instance.props.target, BDFDB.disCN.avataricon) ? e.instance.props.target : e.instance.props.target.querySelector(BDFDB.dotCN.guildicon);
-				if (guildIcon && settings.addGuildIconEntry) this.injectItem(e, guildIcon.tagName == "IMG" ? guildIcon.getAttribute("src") :  guildIcon.style.getPropertyValue("background-image"));
-			}
+			if (e.instance.props.guild && settings.addGuildIconEntry) this.injectItem(e, e.instance.props.guild.getIconURL("png"), BDFDB.LibraryModules.IconUtils.hasAnimatedGuildIcon(e.instance.props.guild) && e.instance.props.guild.getIconURL("gif"));
 		}
 
 		onUserContextMenu (e) {
-			if (e.instance.props.user && e.instance.props.target) {
-				let avatar = BDFDB.DOMUtils.getParent(BDFDB.dotCN.avatarwrapper, e.instance.props.target) && e.instance.props.target.querySelector(BDFDB.dotCN.avatar) || e.instance.props.target;
-				if (avatar && settings.addUserAvatarEntry) this.injectItem(e, avatar.tagName == "IMG" ? avatar.getAttribute("src") : avatar.style.getPropertyValue("background-image"));
-			}
+			if (e.instance.props.user && settings.addUserAvatarEntry) this.injectItem(e, e.instance.props.user.getAvatarURL("png"), BDFDB.LibraryModules.IconUtils.hasAnimatedAvatar(e.instance.props.user) && e.instance.props.user.getAvatarURL("gif"))
 		}
 
 		onNativeContextMenu (e) {
@@ -360,123 +359,145 @@ var ImageUtilities = (_ => {
 			}
 		}
 
-		injectItem (e, url) {
-			if (url && !url.endsWith(".mp4")) {
-				url = url.replace(/^url\(|\)$|"|'/g, "").replace(/\?size\=\d+$/, "?size=4096").replace(/[\?\&](height|width)=\d+/g, "");
+		injectItem (e, ...urls) {
+			let types = [];
+			let validUrls = urls.filter(n => this.isValidImg(n)).map(n => {
+				let url = n.replace(/^url\(|\)$|"|'/g, "").replace(/\?size\=\d+$/, "?size=4096").replace(/[\?\&](height|width)=\d+/g, "");
 				if (url.indexOf("https://images-ext-1.discordapp.net/external/") > -1) {
-					if (url.split("/https/").length != 1) url = "https://" + url.split("/https/")[url.split("/https/").length-1];
-					else if (url.split("/http/").length != 1) url = "http://" + url.split("/http/")[url.split("/http/").length-1];
+					if (url.split("/https/").length > 1) url = "https://" + url.split("/https/").pop();
+					else if (url.split("/http/").length > 1) url = "http://" + url.split("/http/").pop();
 				}
-				let enginesWithoutAll = BDFDB.ObjectUtils.filter(enabledEngines, n => n != "_all", true);
-				let engineKeys = Object.keys(enginesWithoutAll);
-				let valid = url.indexOf("discordapp.com/assets/") == -1;
-				let [children, index] = BDFDB.ContextMenuUtils.findItem(e.returnvalue, {id: "devmode-copy-id", group: true});
-				children.splice(index > -1 ? index : children.length, 0, BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuGroup, {
-					children: BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
-						label: "Image Utilities",
-						id: BDFDB.ContextMenuUtils.createItemId(this.name, "main-item"),
-						children: [
-							BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
-								label: this.labels.context_viewimage_text,
-								id: BDFDB.ContextMenuUtils.createItemId(this.name, "view-image"),
-								action: _ => {
-									let img = new Image();
-									img.onload = function() {
-										BDFDB.LibraryModules.ModalUtils.openModal(modalData => {
-											return BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.ModalComponents.ModalRoot, Object.assign({
-												className: BDFDB.disCN.imagemodal
-											}, modalData, {
-												size: BDFDB.LibraryComponents.ModalComponents.ModalSize.DYNAMIC,
-												"aria-label": BDFDB.LanguageUtils.LanguageStrings.IMAGE,
-												children: BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.ImageModal, {
-													src: url,
-													original: url,
-													width: this.width,
-													height: this.height,
-													className: BDFDB.disCN.imagemodalimage,
-													shouldAnimate: true,
-													renderLinkComponent: props => BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.Anchor, props)
-												})
-											}), true);
-										});
-									};
-									img.src = url;
-								}
-							}),
-							BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
-								label: this.labels.context_saveimage_text,
-								id: BDFDB.ContextMenuUtils.createItemId(this.name, "download-image"),
-								action: _ => {
-									BDFDB.LibraryRequires.request(url, {encoding: null}, (error, response, body) => {
-										let path = this.getDownloadLocation();
-										if (error) BDFDB.NotificationUtils.toast(this.labels.toast_saveimage_failed.replace("{{path}}", path), {type:"error"});
-										else {
-											BDFDB.LibraryRequires.fs.writeFile(this.getFileName(path, url.split("/").pop().split(".").slice(0, -1).join("."), response.headers["content-type"].split("/").pop().split("+")[0], 0), body, error => {
-												if (error) BDFDB.NotificationUtils.toast(this.labels.toast_saveimage_failed.replace("{{path}}", path), {type:"error"});
-												else BDFDB.NotificationUtils.toast(this.labels.toast_saveimage_success.replace("{{path}}", path), {type:"success"});
-											});
-										}
-									});
-								}
-							}),
-							!valid ? null : BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
-								label: this.labels.context_copyimage_text,
-								id: BDFDB.ContextMenuUtils.createItemId(this.name, "copy-image"),
-								action: _ => {
-									this.copyImage(url);
-								}
-							}),
-							BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
-								label: this.labels.context_copyimagelink_text,
-								id: BDFDB.ContextMenuUtils.createItemId(this.name, "copy-src"),
-								action: _ => {
-									BDFDB.LibraryRequires.electron.clipboard.write({text: url});
-									BDFDB.NotificationUtils.toast(this.labels.toast_copyimagelink_success, {type: "success"});
-								}
-							}),
-							!valid ? null : engineKeys.length == 1 ? BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
-								label: this.labels.context_reverseimagesearch_text.replace("...", this.defaults.engines[engineKeys[0]].name),
-								id: BDFDB.ContextMenuUtils.createItemId(this.name, "single-search"),
-								persisting: true,
-								action: event => {
-									if (!event.shiftKey) BDFDB.ContextMenuUtils.close(e.instance);
-									BDFDB.DiscordUtils.openLink(this.defaults.engines[engineKeys[0]].url.replace(imgUrlReplaceString, encodeURIComponent(url)), settings.useChromium, event.shiftKey);
-								}
-							}) : BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
-								label: this.labels.context_reverseimagesearch_text,
-								id: BDFDB.ContextMenuUtils.createItemId(this.name, "submenu-search"),
-								children: !engineKeys.length ? BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
-									label: this.labels.submenu_disabled_text,
-									id: BDFDB.ContextMenuUtils.createItemId(this.name, "disabled"),
-									disabled: true
-								}) : Object.keys(enabledEngines).map(key => BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
-									label: this.defaults.engines[key].name,
-									id: BDFDB.ContextMenuUtils.createItemId(this.name, "search", key),
-									color: key == "_all" ? BDFDB.LibraryComponents.MenuItems.Colors.DANGER : BDFDB.LibraryComponents.MenuItems.Colors.DEFAULT,
-									persisting: true,
-									action: event => {
-										if (!event.shiftKey) BDFDB.ContextMenuUtils.close(e.instance);
-										if (key == "_all") {
-											for (let key2 in enginesWithoutAll) BDFDB.DiscordUtils.openLink(this.defaults.engines[key2].url.replace(imgUrlReplaceString, encodeURIComponent(url)), settings.useChromium, event.shiftKey);
-										}
-										else BDFDB.DiscordUtils.openLink(this.defaults.engines[key].url.replace(imgUrlReplaceString, encodeURIComponent(url)), settings.useChromium, event.shiftKey);
-									}
-								}))
-							})
-						].filter(n => n)
-					})
-				}));
-			}
+				const file = url && (BDFDB.LibraryModules.URLParser.parse(url).pathname || "").toLowerCase();
+				const type = file && file.split(".").pop();
+				return url && type && !types.includes(type) && types.push(type) && {url, type};
+			}).filter(n => n);
+			if (!validUrls.length) return;
+			let [children, index] = BDFDB.ContextMenuUtils.findItem(e.returnvalue, {id: "devmode-copy-id", group: true});
+			children.splice(index > -1 ? index : children.length, 0, BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuGroup, {
+				children: BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+					label: "Image Utilities",
+					id: BDFDB.ContextMenuUtils.createItemId(this.name, "main-subitem"),
+					children: validUrls.length == 1 ? this.createUrlMenu(e, validUrls[0].url) : validUrls.map((urlData, i) => BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+						label: urlData.type.toUpperCase(),
+						id: BDFDB.ContextMenuUtils.createItemId(this.name, "subitem", i),
+						children: this.createUrlMenu(e, urlData.url)
+					}))
+				})
+			}));
+		}
+		
+		createUrlMenu (e, url) {
+			let enginesWithoutAll = BDFDB.ObjectUtils.filter(enabledEngines, n => n != "_all", true);
+			let engineKeys = Object.keys(enginesWithoutAll);
+			return [
+				BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+					label: this.labels.context_viewimage_text,
+					id: BDFDB.ContextMenuUtils.createItemId(this.name, "view-image"),
+					action: _ => {
+						let img = new Image();
+						img.onload = function() {
+							BDFDB.LibraryModules.ModalUtils.openModal(modalData => {
+								return BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.ModalComponents.ModalRoot, Object.assign({
+									className: BDFDB.disCN.imagemodal
+								}, modalData, {
+									size: BDFDB.LibraryComponents.ModalComponents.ModalSize.DYNAMIC,
+									"aria-label": BDFDB.LanguageUtils.LanguageStrings.IMAGE,
+									children: BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.ImageModal, {
+										src: url,
+										original: url,
+										width: this.width,
+										height: this.height,
+										className: BDFDB.disCN.imagemodalimage,
+										shouldAnimate: true,
+										renderLinkComponent: props => BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.Anchor, props)
+									})
+								}), true);
+							});
+						};
+						img.src = url;
+					}
+				}),
+				BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+					label: this.labels.context_saveimage_text,
+					id: BDFDB.ContextMenuUtils.createItemId(this.name, "download-image"),
+					action: _ => {
+						BDFDB.LibraryRequires.request(url, {encoding: null}, (error, response, body) => {
+							let path = this.getDownloadLocation();
+							if (error) BDFDB.NotificationUtils.toast(this.labels.toast_saveimage_failed.replace("{{path}}", path), {type:"error"});
+							else {
+								BDFDB.LibraryRequires.fs.writeFile(this.getFileName(path, url.split("/").pop().split(".").slice(0, -1).join("."), response.headers["content-type"].split("/").pop().split("+")[0], 0), body, error => {
+									if (error) BDFDB.NotificationUtils.toast(this.labels.toast_saveimage_failed.replace("{{path}}", path), {type:"error"});
+									else BDFDB.NotificationUtils.toast(this.labels.toast_saveimage_success.replace("{{path}}", path), {type:"success"});
+								});
+							}
+						});
+					}
+				}),
+				BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+					label: this.labels.context_saveimageas_text,
+					id: BDFDB.ContextMenuUtils.createItemId(this.name, "download-image-as"),
+					action: _ => {
+						this.downloadImage(url);
+					}
+				}),
+				!this.isCopyable(url) ? null : BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+					label: this.labels.context_copyimage_text,
+					id: BDFDB.ContextMenuUtils.createItemId(this.name, "copy-image"),
+					action: _ => {
+						this.copyImage(url);
+					}
+				}),
+				BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+					label: this.labels.context_copyimagelink_text,
+					id: BDFDB.ContextMenuUtils.createItemId(this.name, "copy-src"),
+					action: _ => {
+						BDFDB.LibraryRequires.electron.clipboard.write({text: url});
+						BDFDB.NotificationUtils.toast(this.labels.toast_copyimagelink_success, {type: "success"});
+					}
+				}),
+				!this.isSearchable(url) ? null : engineKeys.length == 1 ? BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+					label: this.labels.context_reverseimagesearch_text.replace("...", this.defaults.engines[engineKeys[0]].name),
+					id: BDFDB.ContextMenuUtils.createItemId(this.name, "single-search"),
+					persisting: true,
+					action: event => {
+						if (!event.shiftKey) BDFDB.ContextMenuUtils.close(e.instance);
+						BDFDB.DiscordUtils.openLink(this.defaults.engines[engineKeys[0]].url.replace(imgUrlReplaceString, encodeURIComponent(url)), settings.useChromium, event.shiftKey);
+					}
+				}) : BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+					label: this.labels.context_reverseimagesearch_text,
+					id: BDFDB.ContextMenuUtils.createItemId(this.name, "submenu-search"),
+					children: !engineKeys.length ? BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+						label: this.labels.submenu_disabled_text,
+						id: BDFDB.ContextMenuUtils.createItemId(this.name, "disabled"),
+						disabled: true
+					}) : Object.keys(enabledEngines).map(key => BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuItem, {
+						label: this.defaults.engines[key].name,
+						id: BDFDB.ContextMenuUtils.createItemId(this.name, "search", key),
+						color: key == "_all" ? BDFDB.LibraryComponents.MenuItems.Colors.DANGER : BDFDB.LibraryComponents.MenuItems.Colors.DEFAULT,
+						persisting: true,
+						action: event => {
+							if (!event.shiftKey) BDFDB.ContextMenuUtils.close(e.instance);
+							if (key == "_all") {
+								for (let key2 in enginesWithoutAll) BDFDB.DiscordUtils.openLink(this.defaults.engines[key2].url.replace(imgUrlReplaceString, encodeURIComponent(url)), settings.useChromium, event.shiftKey);
+							}
+							else BDFDB.DiscordUtils.openLink(this.defaults.engines[key].url.replace(imgUrlReplaceString, encodeURIComponent(url)), settings.useChromium, event.shiftKey);
+						}
+					}))
+				})
+			].filter(n => n);
 		}
 
 		processImageModal (e) {
 			if (clickedImage) e.instance.props.cachedImage = clickedImage;
-			let src = e.instance.props.cachedImage && e.instance.props.cachedImage.src ? e.instance.props.cachedImage : e.instance.props.src;
-			src = src.src || src;
-			let messages = this.getMessageGroupOfImage(src);
+			let url = e.instance.props.cachedImage && e.instance.props.cachedImage.src ? e.instance.props.cachedImage : e.instance.props.src;
+			url = url.src || url;
+			let messages = this.getMessageGroupOfImage(url);
 			if (e.returnvalue) {
 				let [children, index] = BDFDB.ReactUtils.findParent(e.returnvalue, {props: [["className", BDFDB.disCN.downloadlink]]});
 				if (index > -1) {
+					children[index].props.onClick = event => {
+						return event.shiftKey;
+					};
 					let openContext = event => {
 						BDFDB.ContextMenuUtils.open(this, event, BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuGroup, {
 							children: Object.keys(zoomSettings).map(type => BDFDB.ContextMenuUtils.createItem(BDFDB.LibraryComponents.MenuItems.MenuSliderItem, Object.assign({
@@ -495,11 +516,27 @@ var ImageUtilities = (_ => {
 							}, BDFDB.ObjectUtils.extract(this.defaults.zoomSettings[type], "digits", "minValue", "maxValue"))))
 						}));
 					};
+					let isVideo = (typeof e.instance.props.children == "function" && e.instance.props.children(Object.assign({}, e.instance.props, {size: e.instance.props})) || {type:{}}).type.displayName == "Video";
 					children[index] = BDFDB.ReactUtils.createElement("span", {
 						className: BDFDB.disCN._imageutilitiesoperations,
 						children: [
 							children[index],
-							settings.enableCopyImg && src.indexOf("discordapp.com/assets/") == -1 && [
+							settings.enableSaveImg && !isVideo && [
+								BDFDB.ReactUtils.createElement("span", {
+									className: BDFDB.disCN.downloadlink,
+									children: "|",
+									style: {margin: "0 5px"}
+								}),
+								BDFDB.ReactUtils.createElement(BDFDB.LibraryComponents.Anchor, {
+									className: BDFDB.disCN.downloadlink, 
+									children: this.labels.context_saveimageas_text,
+									onClick: event => {
+										BDFDB.ListenerUtils.stopEvent(event);
+										this.downloadImage(url);
+									}
+								})
+							],
+							settings.enableCopyImg && this.isCopyable(url) && !isVideo && [
 								BDFDB.ReactUtils.createElement("span", {
 									className: BDFDB.disCN.downloadlink,
 									children: "|",
@@ -510,11 +547,11 @@ var ImageUtilities = (_ => {
 									children: this.labels.context_copyimage_text,
 									onClick: event => {
 										BDFDB.ListenerUtils.stopEvent(event);
-										this.copyImage(src);
+										this.copyImage(url);
 									}
 								})
 							],
-							settings.enableZoom && [
+							settings.enableZoom && !isVideo && [
 								BDFDB.ReactUtils.createElement("span", {
 									className: BDFDB.disCN.downloadlink,
 									children: "|",
@@ -535,7 +572,7 @@ var ImageUtilities = (_ => {
 					let images = messages.map(n => Array.from(n.querySelectorAll(BDFDB.dotCNS.imagewrapper + "img"))).flat().filter(img => !BDFDB.DOMUtils.getParent(BDFDB.dotCN.spoilerhidden, img));
 					amount = images.length;
 					let next, previous;
-					for (let i = 0; i < amount; i++) if (this.isSameImage(src, images[i])) {
+					for (let i = 0; i < amount; i++) if (this.isSameImage(url, images[i])) {
 						imageIndex = i;
 						previous = images[i-1];
 						next = images[i+1];
@@ -595,7 +632,7 @@ var ImageUtilities = (_ => {
 
 		processLazyImage (e) {
 			if (e.node) {
-				if (settings.enableZoom && !BDFDB.DOMUtils.containsClass(e.node.parentElement, BDFDB.disCN._imageutilitiessibling) && BDFDB.ReactUtils.findOwner(BDFDB.DOMUtils.getParent(BDFDB.dotCNC.modal + BDFDB.dotCN.layermodal, e.node), {name: "ImageModal"})) {
+				if (settings.enableZoom && !e.node.querySelector("video") && !BDFDB.DOMUtils.containsClass(e.node.parentElement, BDFDB.disCN._imageutilitiessibling) && BDFDB.ReactUtils.findOwner(BDFDB.DOMUtils.getParent(BDFDB.dotCNC.modal + BDFDB.dotCN.layermodal, e.node), {name: "ImageModal"})) {
 					e.node.addEventListener("mousedown", event => {
 						if (event.which != 1) return;
 						BDFDB.ListenerUtils.stopEvent(event);
@@ -704,7 +741,7 @@ var ImageUtilities = (_ => {
 		}
 		
 		injectImageDetails (props, child) {
-			if (settings.showAsHeaader) {
+			if (settings.showAsHeader) {
 				props.detailsAdded = true;
 				return BDFDB.ReactUtils.createElement("div", {
 					className: BDFDB.disCN.embedwrapper,
@@ -724,8 +761,34 @@ var ImageUtilities = (_ => {
 			return child;
 		}
 		
-		copyImage (src) {
-            BDFDB.LibraryRequires.request(src, {encoding: null}, (error, response, buffer) => {
+		isValidImg (url) {
+            const file = url && (BDFDB.LibraryModules.URLParser.parse(url).pathname || "").toLowerCase();
+            return file && (url.startsWith("https://images-ext-2.discordapp.net/") || file.endsWith(".jpg") || file.endsWith(".jpeg") || file.endsWith(".png") || file.endsWith(".gif") || file.endsWith(".apng") || file.endsWith(".webp") || file.endsWith(".svg"));
+		}
+		
+		isCopyable (url) {
+            const file = url && (BDFDB.LibraryModules.URLParser.parse(url).pathname || "").toLowerCase();
+            return file && (url.startsWith("https://images-ext-2.discordapp.net/") || file.endsWith(".jpg") || file.endsWith(".jpeg") || file.endsWith(".png"));
+		}
+		
+		isSearchable (url) {
+            const file = url && (BDFDB.LibraryModules.URLParser.parse(url).pathname || "").toLowerCase();
+            return file && (url.startsWith("https://images-ext-2.discordapp.net/") || file.endsWith(".jpg") || file.endsWith(".jpeg") || file.endsWith(".png") || file.endsWith(".gif") || file.endsWith(".apng") || file.endsWith(".webp"));
+		}
+		
+		downloadImage (url) {
+			BDFDB.LibraryRequires.request(url, {encoding: null}, (error, response, body) => {
+				let hrefURL = window.URL.createObjectURL(new Blob([body]));
+				let tempLink = document.createElement("a");
+				tempLink.href = hrefURL;
+				tempLink.download = `${url.split("/").pop().split(".").slice(0, -1).join(".")}.${response.headers["content-type"].split("/").pop().split("+")[0]}`;
+				tempLink.click();
+				window.URL.revokeObjectURL(hrefURL);
+			});
+		}
+		
+		copyImage (url) {
+            BDFDB.LibraryRequires.request(url, {encoding: null}, (error, response, buffer) => {
 				if (error) BDFDB.NotificationUtils.toast(this.labels.toast_copyimage_failed, {type: "error"});
 				else if (buffer) {
 					if (BDFDB.LibraryRequires.process.platform === "win32" || BDFDB.LibraryRequires.process.platform === "darwin") {
@@ -869,7 +932,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Slika je spremljena u '{{path}}'",
 						toast_saveimage_failed:				"Spremanje slike na '{{path}}' nije uspjelo",
 						context_viewimage_text:				"Pogledati sliku",
-						context_saveimage_text:				"Preuzmite sliku",
+						context_saveimage_text:				"Spremiti sliku",
+						context_saveimageas_text:			"Spremi sliku kao ...",
 						context_copyimage_text:				"Kopiraj sliku",
 						context_copyimagelink_text:			"Kopirajte vezu slike",
 						context_reverseimagesearch_text:	"Traži sliku ...",
@@ -884,7 +948,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Billedet er gemt i '{{path}}'",
 						toast_saveimage_failed:				"Kunne ikke gemme billedet i '{{path}}'",
 						context_viewimage_text:				"Se billede",
-						context_saveimage_text:				"Download billede",
+						context_saveimage_text:				"Gem billede",
+						context_saveimageas_text:			"Gem billede som ...",
 						context_copyimage_text:				"Kopier billede",
 						context_copyimagelink_text:			"Kopier billedlink",
 						context_reverseimagesearch_text:	"Søg billede med ...",
@@ -895,13 +960,14 @@ var ImageUtilities = (_ => {
 					return {
 						toast_copyimage_success:			"Bild in Zwischenablage kopiert",
 						toast_copyimage_failed:				"Bild konnte nicht in die Zwischenablage kopiert werden",
-						toast_copyimagelink_success:		"Bildlink in Zwischenablage kopiert",
+						toast_copyimagelink_success:		"Bildadresse in Zwischenablage kopiert",
 						toast_saveimage_success:			"Bild wurde in '{{path}}' gespeichert",
 						toast_saveimage_failed:				"Bild konnte nicht in '{{path}}' gespeichert werden",
 						context_viewimage_text:				"Bild ansehen",
-						context_saveimage_text:				"Bild herunterladen",
+						context_saveimage_text:				"Bild speichern",
+						context_saveimageas_text:			"Bild speichern unter ...",
 						context_copyimage_text:				"Bild kopieren",
-						context_copyimagelink_text:			"Bildlink kopieren",
+						context_copyimagelink_text:			"Bildadresse kopieren",
 						context_reverseimagesearch_text:	"Bild suchen mit ...",
 						context_lensesize_text:				"Linsengröße",
 						submenu_disabled_text:				"Alle deaktiviert"
@@ -914,7 +980,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Imagen guardada en '{{path}}'",
 						toast_saveimage_failed:				"No se pudo guardar la imagen en '{{path}}'",
 						context_viewimage_text:				"Ver imagen",
-						context_saveimage_text:				"Descargar imagen",
+						context_saveimage_text:				"Guardar imagen",
+						context_saveimageas_text:			"Guardar imagen como ...",
 						context_copyimage_text:				"Copiar imagen",
 						context_copyimagelink_text:			"Copiar enlace de imagen",
 						context_reverseimagesearch_text:	"Buscar imagen con ...",
@@ -929,7 +996,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Image enregistrée dans '{{path}}'",
 						toast_saveimage_failed:				"Échec de l'enregistrement de l'image dans '{{path}}'",
 						context_viewimage_text:				"Voir l'image",
-						context_saveimage_text:				"Télécharger l'image",
+						context_saveimage_text:				"Enregistrer l'image",
+						context_saveimageas_text:			"Enregistrer l'image sous ...",
 						context_copyimage_text:				"Copier l'image",
 						context_copyimagelink_text:			"Copier le lien de l'image",
 						context_reverseimagesearch_text:	"Rechercher une image avec ...",
@@ -944,7 +1012,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Immagine salvata in '{{path}}'",
 						toast_saveimage_failed:				"Impossibile salvare l'immagine in '{{path}}'",
 						context_viewimage_text:				"Guarda l'immagine",
-						context_saveimage_text:				"Scarica immagine",
+						context_saveimage_text:				"Salva immagine",
+						context_saveimageas_text:			"Salva l'immagine come ...",
 						context_copyimage_text:				"Copia l'immagine",
 						context_copyimagelink_text:			"Copia link immagine",
 						context_reverseimagesearch_text:	"Cerca immagine con ...",
@@ -959,7 +1028,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Afbeelding opgeslagen in '{{path}}'",
 						toast_saveimage_failed:				"Kan afbeelding niet opslaan in '{{path}}'",
 						context_viewimage_text:				"Bekijk afbeelding",
-						context_saveimage_text:				"Download afbeelding",
+						context_saveimage_text:				"Sla afbeelding op",
+						context_saveimageas_text:			"Sla afbeelding op als ...",
 						context_copyimage_text:				"Kopieer afbeelding",
 						context_copyimagelink_text:			"Kopieer afbeeldingslink",
 						context_reverseimagesearch_text:	"Afbeelding zoeken met ...",
@@ -974,7 +1044,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Bilde lagret i '{{path}}'",
 						toast_saveimage_failed:				"Kunne ikke lagre bildet i '{{path}}'",
 						context_viewimage_text:				"Vis bilde",
-						context_saveimage_text:				"Last ned bilde",
+						context_saveimage_text:				"Lagre bildet",
+						context_saveimageas_text:			"Lagre bildet som ...",
 						context_copyimage_text:				"Kopier bilde",
 						context_copyimagelink_text:			"Kopier bildelink",
 						context_reverseimagesearch_text:	"Søk på bilde med ...",
@@ -989,7 +1060,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Obraz zapisany w '{{path}}'",
 						toast_saveimage_failed:				"Nie udało się zapisać obrazu w '{{path}}'",
 						context_viewimage_text:				"Zobacz obraz",
-						context_saveimage_text:				"Pobierz obraz",
+						context_saveimage_text:				"Zapisać obraz",
+						context_saveimageas_text:			"Zapisz obraz jako ...",
 						context_copyimage_text:				"Skopiuj obraz",
 						context_copyimagelink_text:			"Kopiuj łącze do obrazu",
 						context_reverseimagesearch_text:	"Wyszukaj obraz za pomocą ...",
@@ -1004,7 +1076,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Imagem salva em '{{path}}'",
 						toast_saveimage_failed:				"Falha ao salvar imagem em '{{path}}'",
 						context_viewimage_text:				"Ver imagem",
-						context_saveimage_text:				"Baixar imagem",
+						context_saveimage_text:				"Salvar imagem",
+						context_saveimageas_text:			"Salvar imagem como ...",
 						context_copyimage_text:				"Copiar imagem",
 						context_copyimagelink_text:			"Copiar link da imagem",
 						context_reverseimagesearch_text:	"Pesquisar imagem com ...",
@@ -1019,7 +1092,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Kuva tallennettu '{{path}}'",
 						toast_saveimage_failed:				"Kuvan tallentaminen epäonnistui '{{path}}'",
 						context_viewimage_text:				"Näytä kuva",
-						context_saveimage_text:				"Lataa kuva",
+						context_saveimage_text:				"Tallenna kuva",
+						context_saveimageas_text:			"Tallenna kuva nimellä ...",
 						context_copyimage_text:				"Kopioi kuva",
 						context_copyimagelink_text:			"Kopioi kuvan linkki",
 						context_reverseimagesearch_text:	"Hae kuvaa ...",
@@ -1034,7 +1108,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Bild sparad i '{{path}}'",
 						toast_saveimage_failed:				"Det gick inte att spara bilden i '{{path}}'",
 						context_viewimage_text:				"Se bild",
-						context_saveimage_text:				"Ladda ner bild",
+						context_saveimage_text:				"Spara bild",
+						context_saveimageas_text:			"Spara bild som ...",
 						context_copyimage_text:				"Kopiera bild",
 						context_copyimagelink_text:			"Kopiera bildlänk",
 						context_reverseimagesearch_text:	"Sök bild med ...",
@@ -1049,7 +1124,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Resim '{{path}}' konumuna kaydedildi",
 						toast_saveimage_failed:				"'{{path}}' konumuna resim kaydedilemedi",
 						context_viewimage_text:				"Resmi görüntüle",
-						context_saveimage_text:				"Resmi İndir",
+						context_saveimage_text:				"Resmi kaydet",
+						context_saveimageas_text:			"Resmi farklı kaydet ...",
 						context_copyimage_text:				"Resmi kopyala",
 						context_copyimagelink_text:			"Görüntü Bağlantısını kopyala",
 						context_reverseimagesearch_text:	"Görüntüyü şununla ara ...",
@@ -1064,7 +1140,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Obrázek uložený v '{{path}}'",
 						toast_saveimage_failed:				"Nepodařilo se uložit obrázek do '{{path}}'",
 						context_viewimage_text:				"Zobrazit obrázek",
-						context_saveimage_text:				"Stáhnout obrázek",
+						context_saveimage_text:				"Uložit obrázek",
+						context_saveimageas_text:			"Uložit obrázek jako ...",
 						context_copyimage_text:				"Kopírovat obrázek",
 						context_copyimagelink_text:			"Kopírovat odkaz na obrázek",
 						context_reverseimagesearch_text:	"Vyhledat obrázek pomocí ...",
@@ -1079,7 +1156,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Изображението е запазено в '{{path}}'",
 						toast_saveimage_failed:				"Неуспешно запазване на изображението в '{{path}}'",
 						context_viewimage_text:				"Вижте изображението",
-						context_saveimage_text:				"Изтегляне на изображението",
+						context_saveimage_text:				"Запазването на изображението",
+						context_saveimageas_text:			"Запази изображението като ...",
 						context_copyimage_text:				"Копирай изображение",
 						context_copyimagelink_text:			"Копиране на изображението",
 						context_reverseimagesearch_text:	"Търсене на изображение с ...",
@@ -1094,7 +1172,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Изображение сохранено в '{{path}}'",
 						toast_saveimage_failed:				"Не удалось сохранить изображение в '{{path}}'",
 						context_viewimage_text:				"Просмотр изображения",
-						context_saveimage_text:				"Скачать изображение",
+						context_saveimage_text:				"Сохранить изображение",
+						context_saveimageas_text:			"Сохранить изображение как ...",
 						context_copyimage_text:				"Копировать изображение",
 						context_copyimagelink_text:			"Копировать ссылку на изображение",
 						context_reverseimagesearch_text:	"Поиск изображения с ...",
@@ -1109,7 +1188,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Зображення збережено на '{{path}}'",
 						toast_saveimage_failed:				"Не вдалося зберегти зображення на '{{path}}'",
 						context_viewimage_text:				"Переглянути зображення",
-						context_saveimage_text:				"Завантажити зображення",
+						context_saveimage_text:				"Зберегти зображення",
+						context_saveimageas_text:			"Зберегти зображення як ...",
 						context_copyimage_text:				"Скопіювати зображення",
 						context_copyimagelink_text:			"Скопіюйте посилання на зображення",
 						context_reverseimagesearch_text:	"Шукати зображення за допомогою ...",
@@ -1124,7 +1204,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"画像は'{{path}}'に保存されました",
 						toast_saveimage_failed:				"画像を'{{path}}'に保存できませんでした",
 						context_viewimage_text:				"画像を見る",
-						context_saveimage_text:				"画像をダウンロード",
+						context_saveimage_text:				"画像を保存",
+						context_saveimageas_text:			"画像を保存します ...",
 						context_copyimage_text:				"画像をコピー",
 						context_copyimagelink_text:			"画像リンクをコピー",
 						context_reverseimagesearch_text:	"で画像を検索 ...",
@@ -1139,11 +1220,12 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"圖片保存在'{{path}}'中",
 						toast_saveimage_failed:				"無法將圖像保存到'{{path}}'中",
 						context_viewimage_text:				"看圖片",
-						context_saveimage_text:				"下載圖片",
+						context_saveimage_text:				"保存圖片",
+						context_saveimageas_text:			"將圖像另存為...",
 						context_copyimage_text:				"複製圖片",
 						context_copyimagelink_text:			"複製圖像鏈接",
 						context_lensesize_text:				"鏡片尺寸",
-						context_reverseimagesearch_text:	"搜尋圖片 ...",
+						context_reverseimagesearch_text:	"搜尋圖片...",
 						submenu_disabled_text:				"全部停用"
 					};
 				case "ko":		//korean
@@ -1154,7 +1236,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"'{{path}}'에 저장된 이미지",
 						toast_saveimage_failed:				"'{{path}}'에 이미지를 저장하지 못했습니다",
 						context_viewimage_text:				"이미지보기",
-						context_saveimage_text:				"이미지 다운로드",
+						context_saveimage_text:				"이미지를 저장",
+						context_saveimageas_text:			"다른 이름으로 이미지 저장 ...",
 						context_copyimage_text:				"복사 이미지",
 						context_copyimagelink_text:			"이미지 링크 복사",
 						context_reverseimagesearch_text:	"로 이미지 검색 ...",
@@ -1169,7 +1252,8 @@ var ImageUtilities = (_ => {
 						toast_saveimage_success:			"Saved image in '{{path}}'",
 						toast_saveimage_failed:				"Failed to save image in '{{path}}'",
 						context_viewimage_text:				"View Image",
-						context_saveimage_text:				"Download Image",
+						context_saveimage_text:				"Save Image",
+						context_saveimageas_text:			"Save Image as ...",
 						context_copyimage_text:				"Copy Image",
 						context_copyimagelink_text:			"Copy Image Link",
 						context_reverseimagesearch_text:	"Search Image with ...",

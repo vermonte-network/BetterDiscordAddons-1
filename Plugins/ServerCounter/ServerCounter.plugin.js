@@ -1,14 +1,22 @@
-//META{"name":"MoveablePopups","authorId":"278543574059057154","invite":"Jx3TjNS","donate":"https://www.paypal.me/MircoWittrien","patreon":"https://www.patreon.com/MircoWittrien","website":"https://github.com/mwittrien/BetterDiscordAddons/tree/master/Plugins/MoveablePopups","source":"https://raw.githubusercontent.com/mwittrien/BetterDiscordAddons/master/Plugins/MoveablePopups/MoveablePopups.plugin.js"}*//
+//META{"name":"ServerCounter","authorId":"278543574059057154","invite":"Jx3TjNS","donate":"https://www.paypal.me/MircoWittrien","patreon":"https://www.patreon.com/MircoWittrien","website":"https://github.com/mwittrien/BetterDiscordAddons/tree/master/Plugins/ServerCounter","source":"https://raw.githubusercontent.com/mwittrien/BetterDiscordAddons/master/Plugins/ServerCounter/ServerCounter.plugin.js"}*//
 
-var MoveablePopups = (_ => {
-	return class MoveablePopups {
-		getName () {return "MoveablePopups";}
+var ServerCounter = (_ => {
+	return class ServerCounter {
+		getName () {return "ServerCounter";}
 
-		getVersion () {return "1.1.7";}
+		getVersion () {return "1.0.1";}
 
 		getAuthor () {return "DevilBro";}
 
-		getDescription () {return "DISCONTINUED";}
+		getDescription () {return "Adds a server counter to the server list.";}
+
+		constructor () {
+			this.patchedModules = {
+				after: {
+					Guilds: "render"
+				}
+			};
+		}
 
 		// Legacy
 		load () {
@@ -41,39 +49,37 @@ var MoveablePopups = (_ => {
 				if (this.started) return;
 				BDFDB.PluginUtils.init(this);
 				
-				BDFDB.ModalUtils.open(this, {
-					header: this.name,
-					subheader: "Delete?",
-					text: `This plugin is discontinued, click "${BDFDB.LanguageUtils.LanguageStrings.DELETE}" to delete all remaining files created by this plugin.`,
-					buttons: [{
-						color: "RED",
-						contents: BDFDB.LanguageUtils.LanguageStrings.DELETE,
-						close: true,
-						click: _ => {
-							BDFDB.LibraryRequires.fs.unlink(BDFDB.LibraryRequires.path.join(BDFDB.BDUtils.getPluginsFolder(), `${this.name}.config.json`), _ => {});
-							BDFDB.LibraryRequires.fs.unlink(BDFDB.LibraryRequires.path.join(BDFDB.BDUtils.getPluginsFolder(), `${this.name}.plugin.js`), _ => {});
-						}
-					}],
-					onClose: _ => {
-						BDFDB.BDUtils.disablePlugin(this.name);
-					}
-				});
+				BDFDB.ModuleUtils.forceAllUpdates(this);
 			}
-			else console.error(`%c[${this.getName()}]%c`, "color: #3a71c1; font-weight: 700;", "", "Fatal Error: Could not load BD functions!");
+			else {
+				console.error(`%c[${this.getName()}]%c`, 'color: #3a71c1; font-weight: 700;', '', 'Fatal Error: Could not load BD functions!');
+			}
 		}
-
 
 		stop () {
 			if (window.BDFDB && typeof BDFDB === "object" && BDFDB.loaded) {
 				this.stopping = true;
 				
+				BDFDB.ModuleUtils.forceAllUpdates(this);
+
 				BDFDB.PluginUtils.clear(this);
 			}
 		}
 
-
+		
 		// Begin of own functions
+		
+		processGuilds (e) {
+			let [children, index] = BDFDB.ReactUtils.findParent(e.returnvalue, {name: "ConnectedUnreadDMs"});
+			if (index > -1) children.splice(index + 1, 0, BDFDB.ReactUtils.createElement("div", {
+				className: BDFDB.disCN.guildouter,
+				children: BDFDB.ReactUtils.createElement("div", {
+					className: BDFDB.disCNS.guildslabel + BDFDB.disCN._servercounterservercount,
+					children: `${BDFDB.LanguageUtils.LanguageStrings.SERVERS} - ${BDFDB.LibraryModules.FolderStore.getFlattenedGuildIds().length}`
+				})
+			}));
+		}
 	}
 })();
 
-module.exports = MoveablePopups;
+module.exports = ServerCounter;

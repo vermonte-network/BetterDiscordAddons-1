@@ -49,23 +49,32 @@
 	
 	BDFDB.LogUtils.log("Loading library.");
 	
-	BDFDB.cleanUp =
-	
 	BDFDB.PluginUtils = {};
-	BDFDB.PluginUtils.init = BDFDB.loadMessage = function (plugin) {
+	BDFDB.PluginUtils.load = function (plugin) {
 		plugin.name = plugin.name || (typeof plugin.getName == "function" ? plugin.getName() : null);
 		plugin.version = plugin.version || (typeof plugin.getVersion == "function" ? plugin.getVersion() : null);
 		plugin.author = plugin.author || (typeof plugin.getAuthor == "function" ? plugin.getAuthor() : null);
 		plugin.description = plugin.description || (typeof plugin.getDescription == "function" ? plugin.getDescription() : null);
 		
 		if (typeof plugin.getSettingsPanel != "function") plugin.getSettingsPanel = _ => {return plugin.started && BDFDB.PluginUtils.createSettingsPanel(plugin, []);};
+		
+		if (!plugin.updateChecked) {
+			plugin.updateChecked = true;
+			let url = ["ImageZoom", "ImageGallery", "ReverseImageSearch", "ShowImageDetails"].includes(plugin.name) ? "https://mwittrien.github.io/BetterDiscordAddons/Plugins/ImageUtilities/ImageUtilities.plugin.js" : ["BetterFriendCount"].includes(plugin.name) ? "https://mwittrien.github.io/BetterDiscordAddons/Plugins/BetterFriendList/BetterFriendList.plugin.js" : (typeof plugin.getRawUrl == "function" && typeof plugin.getRawUrl() == "string" ? plugin.getRawUrl() : `https://mwittrien.github.io/BetterDiscordAddons/Plugins/${plugin.name}/${plugin.name}.plugin.js`);
+			BDFDB.PluginUtils.checkUpdate(plugin.name, url);
 
-		let loadMessage = BDFDB.LanguageUtils.LibraryStringsFormat("toast_plugin_started", "v" + plugin.version);
-		BDFDB.LogUtils.log(loadMessage, plugin.name);
-		if (!BDFDB.BDUtils.getSettings(BDFDB.BDUtils.settingsIds.showToasts) && settings.showToasts) BDFDB.NotificationUtils.toast(plugin.name + " " + loadMessage, {nopointer: true, selector: "plugin-started-toast"});
-
-		let url = ["ImageZoom", "ImageGallery", "ReverseImageSearch", "ShowImageDetails"].includes(plugin.name) ? "https://mwittrien.github.io/BetterDiscordAddons/Plugins/ImageUtilities/ImageUtilities.plugin.js" : typeof plugin.getRawUrl == "function" && typeof plugin.getRawUrl() == "string" ? plugin.getRawUrl() : `https://mwittrien.github.io/BetterDiscordAddons/Plugins/${plugin.name}/${plugin.name}.plugin.js`;
-		BDFDB.PluginUtils.checkUpdate(plugin.name, url);
+			if (!window.PluginUpdates || typeof window.PluginUpdates !== "object") window.PluginUpdates = {plugins: {} };
+			window.PluginUpdates.plugins[url] = {name: plugin.name, raw: url, version: plugin.version};
+			if (typeof window.PluginUpdates.interval === "undefined") window.PluginUpdates.interval = BDFDB.TimeUtils.interval(_ => {BDFDB.PluginUtils.checkAllUpdates();}, 1000*60*60*2);
+			BDFDB.TimeUtils.timeout(_ => {delete plugin.updateChecked;}, 30000);
+		}
+	};
+	BDFDB.PluginUtils.init = BDFDB.loadMessage = function (plugin) {
+		BDFDB.PluginUtils.load(plugin);
+		
+		let startMsg = BDFDB.LanguageUtils.LibraryStringsFormat("toast_plugin_started", "v" + plugin.version);
+		BDFDB.LogUtils.log(startMsg, plugin.name);
+		if (settings.showToasts && !BDFDB.BDUtils.getSettings(BDFDB.BDUtils.settingsIds.showToasts)) BDFDB.NotificationUtils.toast(`${plugin.name} ${startMsg}`, {nopointer: true});
 
 		if (typeof plugin.initConstructor === "function") BDFDB.TimeUtils.suppress(plugin.initConstructor.bind(plugin), "Could not initiate constructor!", plugin.name)();
 		if (typeof plugin.css === "string") BDFDB.DOMUtils.appendLocalStyle(plugin.name, plugin.css);
@@ -76,10 +85,6 @@
 		BDFDB.PluginUtils.translate(plugin);
 
 		BDFDB.PluginUtils.checkChangeLog(plugin);
-
-		if (!window.PluginUpdates || typeof window.PluginUpdates !== "object") window.PluginUpdates = {plugins: {} };
-		window.PluginUpdates.plugins[url] = {name: plugin.name, raw: url, version: plugin.version};
-		if (typeof window.PluginUpdates.interval === "undefined") window.PluginUpdates.interval = BDFDB.TimeUtils.interval(_ => {BDFDB.PluginUtils.checkAllUpdates();}, 1000*60*60*2);
 
 		plugin.started = true;
 		delete plugin.stopping;
@@ -92,9 +97,9 @@
 
 		delete BDFDB.myPlugins[plugin.name];
 
-		let unloadMessage = BDFDB.LanguageUtils.LibraryStringsFormat("toast_plugin_stopped", "v" + plugin.version);
-		BDFDB.LogUtils.log(unloadMessage, plugin.name);
-		if (!BDFDB.BDUtils.getSettings(BDFDB.BDUtils.settingsIds.showToasts) && settings.showToasts) BDFDB.NotificationUtils.toast(plugin.name + " " + unloadMessage, {nopointer: true, selector: "plugin-stopped-toast"});
+		let stopMsg = BDFDB.LanguageUtils.LibraryStringsFormat("toast_plugin_stopped", "v" + plugin.version);
+		BDFDB.LogUtils.log(stopMsg, plugin.name);
+		if (settings.showToasts && !BDFDB.BDUtils.getSettings(BDFDB.BDUtils.settingsIds.showToasts)) BDFDB.NotificationUtils.toast(`${plugin.name} ${stopMsg}`, {nopointer: true});
 
 		let url = typeof plugin.getRawUrl == "function" && typeof plugin.getRawUrl() == "string" ? plugin.getRawUrl() : `https://mwittrien.github.io/BetterDiscordAddons/Plugins/${plugin.name}/${plugin.name}.plugin.js`;
 
@@ -215,7 +220,7 @@
 				updateNoticeList.appendChild(updateEntry);
 				if (!updateNoticeList.hasTooltip) {
 					updateNoticeList.hasTooltip = true;
-					BDFDB.TooltipUtils.create(updateNoticeList, BDFDB.LanguageUtils.LibraryStrings.update_notice_click, {
+					updateNotice.tooltip = BDFDB.TooltipUtils.create(updateNoticeList, BDFDB.LanguageUtils.LibraryStrings.update_notice_click, {
 						type: "bottom",
 						unhideable: true,
 						zIndex: 100001,
@@ -772,11 +777,12 @@
 		notice.querySelector(BDFDB.dotCN.noticedismiss).addEventListener("click", _ => {
 			notice.style.setProperty("overflow", "hidden", "important");
 			notice.style.setProperty("height", "0px", "important");
+			if (notice.tooltip && typeof notice.tooltip.removeTooltip == "function") notice.tooltip.removeTooltip();
 			BDFDB.TimeUtils.timeout(_ => {
 				BDFDB.ArrayUtils.remove(NotificationBars, id);
 				BDFDB.DOMUtils.removeLocalStyle("BDFDBcustomNotificationBar" + id);
 				BDFDB.DOMUtils.removeLocalStyle("BDFDBcustomNotificationBarColorCorrection" + id);
-				notice.remove();
+				BDFDB.DOMUtils.remove(notice);
 			}, 500);
 		});
 		return notice;
@@ -791,7 +797,14 @@
 		let itemLayerContainer = document.querySelector(BDFDB.dotCN.appmount +  " > " + BDFDB.dotCN.itemlayercontainer);
 		if (!itemLayerContainer || (typeof text != "string" && !BDFDB.ObjectUtils.is(options.guild)) || !Node.prototype.isPrototypeOf(anker) || !document.contains(anker)) return null;
 		let id = BDFDB.NumberUtils.generateId(Tooltips);
+		let zIndexed = typeof options.zIndex == "number" || options.unhideable;
 		let itemLayer = BDFDB.DOMUtils.create(`<div class="${BDFDB.disCNS.itemlayer + BDFDB.disCN.itemlayerdisabledpointerevents}"><div class="${BDFDB.disCN.tooltip}" tooltip-id="${id}"><div class="${BDFDB.disCN.tooltippointer}"></div><div class="${BDFDB.disCN.tooltipcontent}"></div></div></div>`);
+		if (zIndexed) {
+			let itemLayerContainerClone = itemLayerContainer.cloneNode();
+			itemLayerContainerClone.style.setProperty("z-index", options.zIndex || 1002, "important");
+			itemLayerContainer.parentElement.insertBefore(itemLayerContainerClone, itemLayerContainer.nextElementChild);
+			itemLayerContainer = itemLayerContainerClone;
+		}
 		itemLayerContainer.appendChild(itemLayer);
 		
 		let tooltip = itemLayer.firstElementChild;
@@ -802,7 +815,7 @@
 		
 		if (typeof options.type != "string" || !BDFDB.disCN["tooltip" + options.type.toLowerCase()]) options.type = "top";
 		let type = options.type.toLowerCase();
-		BDFDB.DOMUtils.addClass(tooltip, BDFDB.disCN["tooltip" + type]);
+		BDFDB.DOMUtils.addClass(tooltip, BDFDB.disCN["tooltip" + type], options.className, options.selector);
 		
 		let fontColorIsGradient = false, customBackgroundColor = false, style = "";
 		if (options.style) style += options.style;
@@ -817,18 +830,17 @@
 			style = (style ? (style + " ") : "") + `background: ${backgroundColor} !important; border-color: ${backgroundColorIsGradient ? BDFDB.ColorUtils.convert(options.backgroundColor[type == "left" ? 100 : 0], "RGBA") : backgroundColor} !important;`;
 		}
 		if (style) tooltip.style = style;
-		if (typeof options.zIndex == "number" || options.unhideable) {
+		if (zIndexed) {
 			itemLayer.style.setProperty("z-index", options.zIndex || 1002, "important");
 			tooltip.style.setProperty("z-index", options.zIndex || 1002, "important");
 			tooltipContent.style.setProperty("z-index", options.zIndex || 1002, "important");
 		}
+		if (typeof options.width == "number" && options.width > 196) tooltip.style.setProperty("max-width", `${options.width}px`, "important");
 		if (customBackgroundColor || options.unhideable) BDFDB.DOMUtils.addClass(tooltip, BDFDB.disCN.tooltipcustom);
 		else if (options.color && BDFDB.disCN["tooltip" + options.color.toLowerCase()]) BDFDB.DOMUtils.addClass(tooltip, BDFDB.disCN["tooltip" + options.color.toLowerCase()]);
 		else BDFDB.DOMUtils.addClass(tooltip, BDFDB.disCN.tooltipblack);
 		
 		if (options.list || BDFDB.ObjectUtils.is(options.guild)) BDFDB.DOMUtils.addClass(tooltip, BDFDB.disCN.tooltiplistitem);
-		
-		if (options.selector) BDFDB.DOMUtils.addClass(tooltip, options.selector);
 		
 		if (BDFDB.ObjectUtils.is(options.guild)) {
 			let streamOwnerIds = LibraryModules.StreamUtils.getAllApplicationStreams().filter(app => app.guildId === options.guild.id).map(app => app.ownerId) || [];
@@ -887,7 +899,7 @@
 			else tooltipContent.innerText = text;
 		}
 
-		let mouseLeave = _ => {BDFDB.DOMUtils.remove(itemLayer);};
+		let mouseLeave = _ => {itemLayer.removeTooltip();};
 		if (!options.perssist) anker.addEventListener("mouseleave", mouseLeave);
 		
 		let observer = new MutationObserver(changes => changes.forEach(change => {
@@ -895,14 +907,18 @@
 			if (nodes.indexOf(itemLayer) > -1 || nodes.indexOf(anker) > -1 || nodes.some(n => n.contains(anker))) {
 				BDFDB.ArrayUtils.remove(Tooltips, id);
 				observer.disconnect();
-				BDFDB.DOMUtils.remove(itemLayer);
 				BDFDB.DOMUtils.removeLocalStyle("BDFDBhideOtherTooltips" + id, itemLayerContainer);
+				itemLayer.removeTooltip();
 				anker.removeEventListener("mouseleave", mouseLeave);
 				if (typeof options.onHide == "function") options.onHide(itemLayer, anker);
 			}
 		}));
 		observer.observe(document.body, {subtree:true, childList:true});
 		
+		(tooltip.removeTooltip = itemLayer.removeTooltip = _ => {
+			BDFDB.DOMUtils.remove(itemLayer);
+			if (zIndexed) BDFDB.DOMUtils.remove(itemLayerContainer);
+		});
 		(tooltip.update = itemLayer.update = _ => {
 			let left, top, tRects = BDFDB.DOMUtils.getRects(anker), iRects = BDFDB.DOMUtils.getRects(itemLayer), aRects = BDFDB.DOMUtils.getRects(document.querySelector(BDFDB.dotCN.appmount)), positionOffsets = {height: 10, width: 10}, offset = typeof options.offset == "number" ? options.offset : 0;
 			switch (type) {
@@ -1254,6 +1270,8 @@
 		"MessageTimestamp",
 		"NameTag",
 		"NowPlayingItem",
+		"PendingRow",
+		"PeopleListSectionedLazy",
 		"PictureInPictureVideo",
 		"PrivateChannelEmptyMessage",
 		"RecentsChannelHeader",
@@ -1289,6 +1307,7 @@
 		Channels: "guildchannels",
 		ChannelTextAreaForm: "chatform",
 		ChannelWindow: "chatcontent",
+		CustomStatusModal: "emojiinputmodal",
 		DirectMessage: "guildouter",
 		Guild: "guildouter",
 		GuildFolder: "guildfolderwrapper",
@@ -1724,6 +1743,7 @@
 	DiscordObjects.Invite = BDFDB.ModuleUtils.findByPrototypes("getExpiresAt", "isExpired");
 	DiscordObjects.Message = BDFDB.ModuleUtils.findByPrototypes("getReaction", "getAuthorName", "getChannelId");
 	DiscordObjects.Messages = BDFDB.ModuleUtils.findByPrototypes("jumpToMessage", "hasAfterCached", "forEach");
+	DiscordObjects.Relationship = BDFDB.ModuleUtils.find(m => m.prototype && m.prototype.comparator && Array.isArray(m.prototype.comparator));
 	DiscordObjects.Timestamp = BDFDB.ModuleUtils.findByPrototypes("add", "dayOfYear", "hasAlignedHourOffset");
 	DiscordObjects.User = BDFDB.ModuleUtils.findByPrototypes("hasFlag", "isLocalBot", "isClaimed");
 	BDFDB.DiscordObjects = Object.assign({}, DiscordObjects);
@@ -1784,6 +1804,7 @@
 	LibraryModules.LanguageStore = BDFDB.ModuleUtils.findByProperties("getLanguages", "Messages");
 	LibraryModules.LastChannelStore = BDFDB.ModuleUtils.findByProperties("getLastSelectedChannelId");
 	LibraryModules.LastGuildStore = BDFDB.ModuleUtils.findByProperties("getLastSelectedGuildId");
+	LibraryModules.LinkUtils = BDFDB.ModuleUtils.findByProperties("handleClick", "isLinkTrusted");
 	LibraryModules.LoginUtils = BDFDB.ModuleUtils.findByProperties("login", "logout");
 	LibraryModules.MemberCountUtils = BDFDB.ModuleUtils.findByProperties("getMemberCount", "getMemberCounts");
 	LibraryModules.MemberStore = BDFDB.ModuleUtils.findByProperties("getMember", "getMembers");
@@ -1800,7 +1821,7 @@
 	LibraryModules.NotificationUtils = BDFDB.ModuleUtils.findByProperties("makeTextChatNotification", "shouldNotify");
 	LibraryModules.PlatformUtils = BDFDB.ModuleUtils.findByProperties("isWindows", "isLinux");
 	LibraryModules.PermissionUtils = BDFDB.ModuleUtils.findByProperties("getChannelPermissions", "can");
-	LibraryModules.PermissionRoleUtils = BDFDB.ModuleUtils.findByProperties("getHighestRole", "can");
+	LibraryModules.PermissionRoleUtils = BDFDB.ModuleUtils.findByProperties("canEveryone", "can");
 	LibraryModules.QueryUtils = BDFDB.ModuleUtils.findByProperties("AutocompleterQuerySymbols", "AutocompleterResultTypes");
 	LibraryModules.QuoteUtils = BDFDB.ModuleUtils.findByProperties("canQuote", "createQuotedText");
 	LibraryModules.ReactionEmojiUtils = BDFDB.ModuleUtils.findByProperties("getReactionEmojiName", "getReactionEmojiName");
@@ -1823,9 +1844,11 @@
 	LibraryModules.StreamerModeStore = BDFDB.ModuleUtils.findByProperties("disableSounds", "hidePersonalInformation");
 	LibraryModules.StreamUtils = BDFDB.ModuleUtils.findByProperties("getActiveStreamForUser", "getAllApplicationStreams");
 	LibraryModules.StringUtils = BDFDB.ModuleUtils.findByProperties("cssValueToNumber", "upperCaseFirstChar");
+	LibraryModules.TimestampUtils = BDFDB.ModuleUtils.findByProperties("fromTimestamp", "extractTimestamp");
 	LibraryModules.UnreadGuildUtils = BDFDB.ModuleUtils.findByProperties("hasUnread", "getUnreadGuilds");
 	LibraryModules.UnreadChannelUtils = BDFDB.ModuleUtils.findByProperties("getUnreadCount", "getOldestUnreadMessageId");
 	LibraryModules.UploadUtils = BDFDB.ModuleUtils.findByProperties("upload", "instantBatchUpload");
+	LibraryModules.URLParser = BDFDB.ModuleUtils.findByProperties("parse", "resolveObject");
 	LibraryModules.UserFetchUtils = BDFDB.ModuleUtils.findByProperties("fetchCurrentUser", "getUser");
 	LibraryModules.UserNameUtils = BDFDB.ModuleUtils.findByProperties("getName", "getNickname");
 	LibraryModules.UserProfileUtils = BDFDB.ModuleUtils.findByProperties("open", "fetchProfile");
@@ -4140,6 +4163,7 @@
 	var DiscordClassModules = {};
 	DiscordClassModules.BDFDB = {
 		BDFDBundefined: "BDFDB_undefined",
+		avatarDisabled: "disabled-6G33EE",
 		badge: "badge-7R_W3s",
 		badgeAvatar: "avatar-hF52Er",
 		bdaRepoEntry: "entry-9JnAPs",
@@ -4178,6 +4202,15 @@
 		favButtonContainer: "favbutton-8Fzu45",
 		guild: "guild-r3yAE_",
 		guildLowerLeftBadge: "lowerLeftBadge-zr4T_9",
+		guildsLabel: "label-2wRs_g",
+		guildSummaryClickableIcon: "clickableIcon-7I6aVc",
+		guildSummaryContainer: "container-5VyO4t",
+		guildSummaryEmptyGuild: "emptyGuild-Am9XfC",
+		guildSummaryIcon: "icon-r6DlKo",
+		guildSummaryIconContainer: "iconContainer-IBAtWs",
+		guildSummaryIconContainerMasked: "iconContainerMasked-G-akdf iconContainer-IBAtWs",
+		guildSummaryMoreGuilds: "moreGuilds-c5JVlC",
+		guildSummarySvgIcon: "icon-5TsFrr",
 		guildUpperLeftBadge: "upperLeftBadge-e35IpL",
 		hasBadge: "hasBadge-4rT8_u",
 		hotkeyResetButton: "resetButton-hI9Ax7",
@@ -4241,12 +4274,7 @@
 		tabBarContainerBottom: "bottom-b8sdfs",
 		table: "table-moqjM0",
 		tableBodyCell: "bodyCell-dQam9V",
-		tableHeader: "header-g67q9_",
 		tableHeaderCell: "headerCell-T6Fo3K",
-		tableHeaderCellSorted: "headerCellSorted-FMjMWK",
-		tableHeaderSortIcon: "sortIcon-WZjMja",
-		tableRow: "row-_9Ehcp",
-		tableStickyHeader: "stickyHeader-JabwjW header-g67q9_",
 		textScroller: "textScroller-dc9_kz",
 		themedPopout: "themedPopout-1TrfdI",
 		tooltipCustom: "tooltipCustom-hH39_Z",
@@ -4309,6 +4337,11 @@
 		size22: "size22-AJj9xV",
 		size24: "size24-NlR6be"
 	};
+	DiscordClassModules.BetterFriendList = {
+		mutualGuilds: "mutualGuilds-s7F2aa",
+		nameCell: "nameCell-7F4sRs",
+		title: "title-3aDrFs"
+	},
 	DiscordClassModules.BetterNsfwTag = {
 		nsfwTag: "nsfwTag-666omg"
 	};
@@ -4322,6 +4355,7 @@
 		charCounter: "charCounter-7fw40k",
 		chatCounter: "chatCounter-XOMPsh",
 		counterAdded: "charCounterAdded-zz9O4t",
+		customStatusCounter: "customStatusCounter-G8FrsT",
 		editCounter: "editCounter-pNT1Xe",
 		nickCounter: "nickCounter-tJrO_4",
 		popoutNoteCounter: "popoutNoteCounter-62U4Rh",
@@ -4346,7 +4380,11 @@
 		nameCell: "nameCell-xyXENZ"
 	};
 	DiscordClassModules.FriendNotifications = {
-		friendsOnline: "friendsOnline-2JkivW"
+		logAvatar: "avatar-GgGssS",
+		logContent: "content-_3_FFs",
+		logTime: "time-00Fs44",
+		friendsOnline: "friendsOnline-2JkivW",
+		typeLabel: "label-9FgsSa"
 	};
 	DiscordClassModules.GoogleTranslateOption = {
 		reverseButton: "reverseButton-5S47qV",
@@ -4380,6 +4418,11 @@
 		settingsToolbar: "settingsToolbar-wu4yfQ",
 		toolbar: "toolbar-hRzFw-"
 	};
+	DiscordClassModules.OwnerTag = {
+		adminIcon: "admin-Kv1Hp_",
+		managementIcon: "management-3fF_o8",
+		ownerIcon: "owner-FfFh3B-"
+	};
 	DiscordClassModules.PinDMs = {
 		dragPreview: "dragPreview-nXiByA",
 		dmChannelPinned: "pinned-0lM4wD",
@@ -4394,10 +4437,16 @@
 		unpinButton: "unpinButton-z3-UVO",
 		unpinIcon: "unpinIcon-79ZnEr"
 	};
-	DiscordClassModules.ReadAllNotificationsButton	= {
+	DiscordClassModules.ReadAllNotificationsButton= {
 		button: "button-Jt-tIg",
 		frame: "frame-oXWS21",
 		innerFrame: "innerFrame-8Hg64E"
+	};
+	DiscordClassModules.ServerCounter = {
+		serverCount: "serverCount-FsTTs1"
+	};
+	DiscordClassModules.ServerDetails = {
+		tooltip: "detailsTooltip-G9hSSa"
 	};
 	DiscordClassModules.ServerFolders = {
 		dragPreview: "dragPreview-nXiByA",
@@ -4429,6 +4478,8 @@
 		coverWrapper: "coverWrapper-YAplwJ",
 		details: "details-ntX2k5",
 		interpret: "interpret-F93iqP",
+		settingsIcon: "icon-F4SSra",
+		settingsLabel: "label-3f00Sr",
 		song: "song-tIdBpF",
 		timeline: "timeline-UWmgAx",
 		volumeSlider: "volumeSlider-sR5g00"
@@ -4635,6 +4686,8 @@
 	DiscordClassModules.NitroStore = BDFDB.ModuleUtils.findByProperties("applicationStore", "marketingHeader");
 	DiscordClassModules.NoteTextarea = BDFDB.ModuleUtils.find(m => typeof m.textarea == "string" && Object.keys(m).length == 1);
 	DiscordClassModules.Notice = BDFDB.ModuleUtils.findByProperties("notice", "noticeFacebook");
+	DiscordClassModules.PeopleItem = BDFDB.ModuleUtils.findByProperties("peopleListItem", "active");
+	DiscordClassModules.PeopleItemInfo = BDFDB.ModuleUtils.find(m => typeof m.listItemContents == "string" && typeof m.actions == "string" && Object.keys(m).length == 2);
 	DiscordClassModules.Peoples = BDFDB.ModuleUtils.findByProperties("peopleColumn", "tabBar");
 	DiscordClassModules.PictureInPicture = BDFDB.ModuleUtils.findByProperties("pictureInPicture", "pictureInPictureWindow");
 	DiscordClassModules.PillWrapper = BDFDB.ModuleUtils.find(m => typeof m.item == "string" && typeof m.wrapper == "string" && Object.keys(m).length == 2);
@@ -4687,6 +4740,7 @@
 	DiscordClassModules.UserInfo = BDFDB.ModuleUtils.findByProperties("userInfo", "discordTag");
 	DiscordClassModules.UserPopout = BDFDB.ModuleUtils.findByProperties("userPopout", "headerPlaying");
 	DiscordClassModules.UserProfile = BDFDB.ModuleUtils.findByProperties("topSectionNormal", "tabBarContainer");
+	DiscordClassModules.UserSummaryItem = BDFDB.ModuleUtils.findByProperties("avatarContainerMasked", "container");
 	DiscordClassModules.Video = BDFDB.ModuleUtils.findByProperties("video", "fullScreen");
 	DiscordClassModules.VoiceChannel = BDFDB.ModuleUtils.findByProperties("avatarSpeaking", "voiceUser");
 	DiscordClassModules.VoiceChannelList = BDFDB.ModuleUtils.findByProperties("list", "collapsed");
@@ -4705,7 +4759,6 @@
 		_bdguildvideo: ["BDrepo", "bdGuildVideo"],
 		_bdpillselected: ["BDrepo", "bdPillSelected"],
 		_bdpillunread: ["BDrepo", "bdPillUnread"],
-		_betternsfwtagtag: ["BetterNsfwTag", "nsfwTag"],
 		_badgeseverywherebadge: ["BadgesEverywhere", "badge"],
 		_badgeseverywherebadges: ["BadgesEverywhere", "badges"],
 		_badgeseverywherebadgeschat: ["BadgesEverywhere", "badgesChat"],
@@ -4720,6 +4773,10 @@
 		_badgeseverywheresize21: ["BadgesEverywhere", "size21"],
 		_badgeseverywheresize22: ["BadgesEverywhere", "size22"],
 		_badgeseverywheresize24: ["BadgesEverywhere", "size24"],
+		_betterfriendlistmutualguilds: ["BetterFriendList", "mutualGuilds"],
+		_betterfriendlistnamecell: ["BetterFriendList", "nameCell"],
+		_betterfriendlisttitle: ["BetterFriendList", "title"],
+		_betternsfwtagtag: ["BetterNsfwTag", "nsfwTag"],
 		_chatfilterblocked: ["ChatFilter", "blocked"],
 		_chatfilterblockedstamp: ["ChatFilter", "blockedStamp"],
 		_chatfiltercensored: ["ChatFilter", "censored"],
@@ -4727,6 +4784,7 @@
 		_charcountercounter: ["CharCounter", "charCounter"],
 		_charcounterchatcounter: ["CharCounter", "chatCounter"],
 		_charcountercounteradded: ["CharCounter", "counterAdded"],
+		_charcountercustomstatuscounter: ["CharCounter", "customStatusCounter"],
 		_charcountereditcounter: ["CharCounter", "editCounter"],
 		_charcounternickcounter: ["CharCounter", "nickCounter"],
 		_charcounterpopoutnotecounter: ["CharCounter", "popoutNoteCounter"],
@@ -4741,7 +4799,11 @@
 		_emojistatisticsamountcell: ["EmojiStatistics", "amountCell"],
 		_emojistatisticsiconcell: ["EmojiStatistics", "iconCell"],
 		_emojistatisticsnamecell: ["EmojiStatistics", "nameCell"],
+		_friendnotificationslogavatar: ["FriendNotifications", "logAvatar"],
+		_friendnotificationslogcontent: ["FriendNotifications", "logContent"],
+		_friendnotificationslogtime: ["FriendNotifications", "logTime"],
 		_friendnotificationsfriendsonline: ["FriendNotifications", "friendsOnline"],
+		_friendnotificationstypelabel: ["FriendNotifications", "typeLabel"],
 		_imageutilitiesdetails: ["ImageUtilities", "details"],
 		_imageutilitiesdetailsadded: ["ImageUtilities", "detailsAdded"],
 		_imageutilitiesdetailslabel: ["ImageUtilities", "detailsLabel"],
@@ -4764,6 +4826,9 @@
 		_oldtitlebarenabled: ["OldTitleBar", "oldTitleBarEnabled"],
 		_oldtitlebarsettingstoolbar: ["OldTitleBar", "settingsToolbar"],
 		_oldtitlebartoolbar: ["OldTitleBar", "toolbar"],
+		_ownertagadminicon: ["OwnerTag", "adminIcon"],
+		_ownertagmanagementicon: ["OwnerTag", "managementIcon"],
+		_ownertagownericon: ["OwnerTag", "ownerIcon"],
 		_pindmsdragpreview: ["PinDMs", "dragPreview"],
 		_pindmsdmchannelpinned: ["PinDMs", "dmChannelPinned"],
 		_pindmsdmchannelplaceholder: ["PinDMs", "dmChannelPlaceholder"],
@@ -4779,6 +4844,8 @@
 		_readallnotificationsbuttonbutton: ["ReadAllNotificationsButton", "button"],
 		_readallnotificationsbuttonframe: ["ReadAllNotificationsButton", "frame"],
 		_readallnotificationsbuttoninner: ["ReadAllNotificationsButton", "innerFrame"],
+		_servercounterservercount: ["ServerCounter", "serverCount"],
+		_serverdetailstooltip: ["ServerDetails", "tooltip"],
 		_serverfoldersdragpreview: ["ServerFolders", "dragPreview"],
 		_serverfoldersfoldercontent: ["ServerFolders", "folderContent"],
 		_serverfoldersfoldercontentclosed: ["ServerFolders", "folderContentClosed"],
@@ -4804,6 +4871,8 @@
 		_spotifycontrolscoverwrapper: ["SpotifyControls", "coverWrapper"],
 		_spotifycontrolsdetails: ["SpotifyControls", "details"],
 		_spotifycontrolsinterpret: ["SpotifyControls", "interpret"],
+		_spotifycontrolssettingsicon: ["SpotifyControls", "settingsIcon"],
+		_spotifycontrolssettingslabel: ["SpotifyControls", "settingsLabel"],
 		_spotifycontrolssong: ["SpotifyControls", "song"],
 		_spotifycontrolstimeline: ["SpotifyControls", "timeline"],
 		_spotifycontrolsvolumeslider: ["SpotifyControls", "volumeSlider"],
@@ -4897,6 +4966,7 @@
 		autocompleteselector: ["Autocomplete", "selector"],
 		avatar: ["Avatar", "avatar"],
 		avatarcursordefault: ["Avatar", "cursorDefault"],
+		avatardisabled: ["BDFDB", "avatarDisabled"],
 		avataricon: ["AvatarIcon", "icon"],
 		avatariconactivelarge: ["AvatarIcon", "iconActiveLarge"],
 		avatariconactivemedium: ["AvatarIcon", "iconActiveMedium"],
@@ -5229,6 +5299,7 @@
 		emojiinputclearbutton: ["EmojiInput", "clearButton"],
 		emojiinputclearicon: ["EmojiInput", "clearIcon"],
 		emojiinputcontainer: ["EmojiInput", "inputContainer"],
+		emojiinputmodal: ["EmojiInput", "modalRoot"],
 		emojipickerbutton: ["Reactions", "reactionBtn"],
 		emojipicker: ["EmojiPicker", "emojiPicker"],
 		emojipickerdiversityemojiitem: ["EmojiPickerDiversitySelector", "diversityEmojiItem"],
@@ -5371,7 +5442,16 @@
 		guildsettingsmembername: ["GuildSettingsMember", "name"],
 		guildsettingsmembernametag: ["GuildSettingsMember", "nameTag"],
 		guildsettingsrolesbuttonwrapper: ["GuildSettingsRoles", "buttonWrapper"],
+		guildslabel: ["BDFDB", "guildsLabel"],
 		guildsscroller: ["GuildsWrapper", "scroller"],
+		guildsummaryclickableicon: ["BDFDB", "guildSummaryClickableIcon"],
+		guildsummarycontainer: ["BDFDB", "guildSummaryContainer"],
+		guildsummaryemptyguild: ["BDFDB", "guildSummaryEmptyGuild"],
+		guildsummaryicon: ["BDFDB", "guildSummaryIcon"],
+		guildsummaryiconcontainer: ["BDFDB", "guildSummaryIconContainer"],
+		guildsummaryiconcontainermasked: ["BDFDB", "guildSummaryIconContainerMasked"],
+		guildsummarymoreguilds: ["BDFDB", "guildSummaryMoreGuilds"],
+		guildsummarysvgicon: ["BDFDB", "guildSummarySvgIcon"],
 		guildsvg: ["Guild", "svg"],
 		guildswrapper: ["GuildsWrapper", "wrapper"],
 		guildswrapperunreadmentionsbar: ["GuildsWrapper", "unreadMentionsBar"],
@@ -5822,11 +5902,14 @@
 		paginationlistcontent: ["BDFDB", "paginationListContent"],
 		paginationlistmini: ["BDFDB", "paginationListMini"],
 		paginationlistpagination: ["BDFDB", "paginationListPagination"],
+		peopleactions: ["PeopleItemInfo", "actions"],
+		peopleinner: ["PeopleItemInfo", "listItemContents"],
 		peoples: ["Peoples", "container"],
 		peoplesbadge: ["Peoples", "badge"],
 		peoplesnowplayingcolumn: ["Peoples", "nowPlayingColumn"],
 		peoplespeoplecolumn: ["Peoples", "peopleColumn"],
 		peoplestabbar: ["Peoples", "tabBar"],
+		peoplewrapper: ["PeopleItem", "peopleListItem"],
 		pictureinpicture: ["PictureInPicture", "pictureInPicture"],
 		pictureinpicturewindow: ["PictureInPicture", "pictureInPictureWindow"],
 		popout: ["Popout", "popout"],
@@ -6039,12 +6122,15 @@
 		tabbartop: ["Item", "top"],
 		table: ["BDFDB", "table"],
 		tablebodycell: ["BDFDB", "tableBodyCell"],
-		tableheader: ["BDFDB", "tableHeader"],
-		tableheadercell: ["BDFDB", "tableHeaderCellSorted"],
-		tableheadercellsorted: ["BDFDB", "tableHeaderCell"],
-		tableheadersorticon: ["BDFDB", "tableHeaderSortIcon"],
-		tablerow: ["BDFDB", "tableRow"],
-		tablestickyheader: ["BDFDB", "tableStickyHeader"],
+		tableheadercell: ["BDFDB", "tableHeaderCell"],
+		tableheadercellclickable: ["Table", "clickable"],
+		tableheadercellcontent: ["Table", "headerCellContent"],
+		tableheadercellsorted: ["Table", "headerCellSorted"],
+		tableheadercellwrapper: ["Table", "headerCell"],
+		tableheadersorticon: ["Table", "sortIcon"],
+		tablerow: ["Table", "row"],
+		tablespacerheader: ["Table", "spacerHeader"],
+		tablestickyheader: ["Table", "stickyHeader"],
 		textarea: ["ChannelTextArea", "textArea"],
 		textareaattachbutton: ["ChannelTextAreaAttachButton", "attachButton"],
 		textareaattachbuttoninner: ["ChannelTextAreaAttachButton", "attachButtonInner"],
@@ -6213,6 +6299,14 @@
 		usernotepopout: ["UserPopout", "note"],
 		usernoteprofile: ["UserProfile", "note"],
 		usernotetextarea: ["NoteTextarea", "textarea"],
+		usersummaryavatar: ["UserSummaryItem", "avatar"],
+		usersummaryavatarcontainer: ["UserSummaryItem", "avatarContainer"],
+		usersummaryavatarcontainermasked: ["UserSummaryItem", "avatarContainerMasked"],
+		usersummaryclickableavatar: ["UserSummaryItem", "clickableAvatar"],
+		usersummarycontainer: ["UserSummaryItem", "container"],
+		usersummaryemptyuser: ["UserSummaryItem", "emptyUser"],
+		usersummaryicon: ["UserSummaryItem", "icon"],
+		usersummarymoreUsers: ["UserSummaryItem", "moreUsers"],
 		vertical: ["Flex", "vertical"],
 		voiceavatar: ["VoiceChannel", "avatar"],
 		voiceavatarcontainer: ["VoiceChannel", "avatarContainer"],
@@ -6489,6 +6583,7 @@
 			last: "Zadnji",
 			library_settings: "Postavke biblioteke",
 			order: "Slijed",
+			server: "Server",
 			sort_by: "Poredaj po",
 			toast_plugin_started: "{{var0}} je započeo.",
 			toast_plugin_stopped: "{{var0}} zaustavljen.",
@@ -6506,6 +6601,7 @@
 			last: "Sidste",
 			library_settings: "Biblioteksindstillinger",
 			order: "Sekvens",
+			server: "Server",
 			sort_by: "Sorter efter",
 			toast_plugin_started: "{{var0}} er startet.",
 			toast_plugin_stopped: "{{var0}} er stoppet.",
@@ -6523,6 +6619,7 @@
 			last: "Letzte",
 			library_settings: "Bibliothekseinstellungen",
 			order: "Reihenfolge",
+			server: "Server",
 			sort_by: "Sortieren nach",
 			toast_plugin_started: "{{var0}} wurde gestartet.",
 			toast_plugin_stopped: "{{var0}} wurde gestoppt.",
@@ -6540,6 +6637,7 @@
 			last: "Último",
 			library_settings: "Configuraciones de biblioteca",
 			order: "Secuencia",
+			server: "Servidor",
 			sort_by: "Ordenar por",
 			toast_plugin_started: "{{var0}} se guilddiv iniciado.",
 			toast_plugin_stopped: "{{var0}} se guilddiv detenido.",
@@ -6557,6 +6655,7 @@
 			last: "Dernier",
 			library_settings: "Paramètres de la bibliothèque",
 			order: "Séquence",
+			server: "Serveur",
 			sort_by: "Trier par",
 			toast_plugin_started: "{{var0}} a été démarré.",
 			toast_plugin_stopped: "{{var0}} a été arrêté.",
@@ -6574,6 +6673,7 @@
 			last: "Ultimo",
 			library_settings: "Impostazioni della libreria",
 			order: "Sequenza",
+			server: "Server",
 			sort_by: "Ordina per",
 			toast_plugin_started: "{{var0}} è stato avviato.",
 			toast_plugin_stopped: "{{var0}} è stato interrotto.",
@@ -6591,6 +6691,7 @@
 			last: "Laatste",
 			library_settings: "Bibliotheekinstellingen",
 			order: "Volgorde",
+			server: "Server",
 			sort_by: "Sorteer op",
 			toast_plugin_started: "{{var0}} is gestart.",
 			toast_plugin_stopped: "{{var0}} is gestopt.",
@@ -6608,6 +6709,7 @@
 			last: "Siste",
 			library_settings: "Bibliotekinnstillinger",
 			order: "Sekvens",
+			server: "Server",
 			sort_by: "Sorter etter",
 			toast_plugin_started: "{{var0}} er startet.",
 			toast_plugin_stopped: "{{var0}} er stoppet.",
@@ -6625,6 +6727,7 @@
 			last: "Ostatni",
 			library_settings: "Ustawienia biblioteki",
 			order: "Sekwencja",
+			server: "Serwer",
 			sort_by: "Sortuj według",
 			toast_plugin_started: "{{var0}} został uruchomiony.",
 			toast_plugin_stopped: "{{var0}} został zatrzymany.",
@@ -6642,6 +6745,7 @@
 			last: "Último",
 			library_settings: "Configurações da biblioteca",
 			order: "Seqüência",
+			server: "Servidor",
 			sort_by: "Ordenar por",
 			toast_plugin_started: "{{var0}} foi iniciado.",
 			toast_plugin_stopped: "{{var0}} foi interrompido.",
@@ -6659,6 +6763,7 @@
 			last: "Viimeinen",
 			library_settings: "Kirjastoasetukset",
 			order: "Jakso",
+			server: "Palvelin",
 			sort_by: "Järjestä",
 			toast_plugin_started: "{{var0}} on käynnistetty.",
 			toast_plugin_stopped: "{{var0}} on pysäytetty.",
@@ -6676,6 +6781,7 @@
 			last: "Sista",
 			library_settings: "Biblioteksinställningar",
 			order: "Sekvens",
+			server: "Server",
 			sort_by: "Sortera efter",
 			toast_plugin_started: "{{var0}} har startats.",
 			toast_plugin_stopped: "{{var0}} har blivit stoppad.",
@@ -6693,6 +6799,7 @@
 			last: "Son",
 			library_settings: "Kütüphane Ayarları",
 			order: "Sıra",
+			server: "Sunucu",
 			sort_by: "Göre sırala",
 			toast_plugin_started: "{{var0}} başlatıldı.",
 			toast_plugin_stopped: "{{var0}} durduruldu.",
@@ -6710,6 +6817,7 @@
 			last: "Poslední",
 			library_settings: "Nastavení knihovny",
 			order: "Sekvence",
+			server: "Server",
 			sort_by: "Seřazeno podle",
 			toast_plugin_started: "{{var0}} byl spuštěn.",
 			toast_plugin_stopped: "{{var0}} byl zastaven.",
@@ -6727,6 +6835,7 @@
 			last: "Последният",
 			library_settings: "Настройки на библиотеката",
 			order: "Последователност",
+			server: "Сървър",
 			sort_by: "Сортиране по",
 			toast_plugin_started: "{{var0}} е стартиран.",
 			toast_plugin_stopped: "{{var0}} е спрян.",
@@ -6744,6 +6853,7 @@
 			last: "Последний",
 			library_settings: "Настройки библиотеки",
 			order: "Последовательность",
+			server: "Сервер",
 			sort_by: "Сортировать по",
 			toast_plugin_started: "{{var0}} запущен.",
 			toast_plugin_stopped: "{{var0}} остановлен.",
@@ -6761,6 +6871,7 @@
 			last: "Останній",
 			library_settings: "Налаштування бібліотеки",
 			order: "Послідовність",
+			server: "Сервер",
 			sort_by: "Сортувати за",
 			toast_plugin_started: "{{var0}} було запущено.",
 			toast_plugin_stopped: "{{var0}} було зупинено.",
@@ -6778,6 +6889,7 @@
 			last: "最後",
 			library_settings: "ライブラリ設定",
 			order: "ソート順",
+			server: "サーバー",
 			sort_by: "並び替え",
 			toast_plugin_started: "{{var0}}が開始されました.",
 			toast_plugin_stopped: "{{var0}}が停止しました.",
@@ -6795,6 +6907,7 @@
 			last: "最後",
 			library_settings: "庫設置",
 			order: "排序",
+			server: "伺服器",
 			sort_by: "排序方式",
 			toast_plugin_started: "{{var0}}已經啟動.",
 			toast_plugin_stopped: "{{var0}}已停止.",
@@ -6812,6 +6925,7 @@
 			last: "마지막",
 			library_settings: "라이브러리 설정",
 			order: "정렬 순서",
+			server: "서버",
 			sort_by: "정렬 기준",
 			toast_plugin_started: "{{var0}} 시작되었습니다.",
 			toast_plugin_stopped: "{{var0}} 중지되었습니다.",
@@ -6829,6 +6943,7 @@
 			last: "Last",
 			library_settings: "Library Settings",
 			order: "Order",
+			server: "Server",
 			sort_by: "Sort by",
 			toast_plugin_started: "{{var0}} has been started.",
 			toast_plugin_stopped: "{{var0}} has been stopped.",
@@ -7137,9 +7252,9 @@
 						]
 					}),
 					BDFDB.ReactUtils.createElement("div", {
-						className: BDFDB.disCN._repodescription + " scroller",
+						className: BDFDB.disCN._repodescriptionwrap,
 						children: BDFDB.ReactUtils.createElement("div", {
-							className: BDFDB.disCN._repodescription + " scroller",
+							className: BDFDB.disCN._repodescription,
 							children: this.props.data.description
 						})
 					}),
@@ -7211,12 +7326,16 @@
 	InternalComponents.LibraryComponents.BotTag = InternalBDFDB.loadPatchedComp("BotTag") || reactInitialized && class BDFDB_BotTag extends LibraryModules.React.Component {
 		handleClick(e) {if (typeof this.props.onClick == "function") this.props.onClick(e, this);}
 		handleContextMenu(e) {if (typeof this.props.onContextMenu == "function") this.props.onContextMenu(e, this);}
+		handleMouseEnter(e) {if (typeof this.props.onMouseEnter == "function") this.props.onMouseEnter(e, this);}
+		handleMouseLeave(e) {if (typeof this.props.onMouseLeave == "function") this.props.onMouseLeave(e, this);}
 		render() {
 			return BDFDB.ReactUtils.createElement("span", {
 				className: BDFDB.DOMUtils.formatClassName(this.props.className, this.props.invertColor ? BDFDB.disCN.bottaginvert : BDFDB.disCN.bottagregular, this.props.useRemSizes ? BDFDB.disCN.bottagrem : BDFDB.disCN.bottagpx),
 				style: this.props.style,
 				onClick: this.handleClick.bind(this),
 				onContextMenu: this.handleContextMenu.bind(this),
+				onMouseEnter: this.handleMouseEnter.bind(this),
+				onMouseLeave: this.handleMouseLeave.bind(this),
 				children: BDFDB.ReactUtils.createElement("span", {
 					className: BDFDB.disCN.bottagtext,
 					children: this.props.tag || BDFDB.LanguageUtils.LanguageStrings.BOT_TAG_BOT
@@ -8231,6 +8350,75 @@
 	
 	InternalComponents.LibraryComponents.GuildComponents.Pill = BDFDB.ModuleUtils.findByString("opacity:1,height:", "20:8", "default.item");
 	
+	InternalComponents.LibraryComponents.GuildSummaryItem = InternalBDFDB.loadPatchedComp("GuildSummaryItem") || reactInitialized && class BDFDB_GuildSummaryItem extends LibraryModules.React.Component {
+		defaultRenderGuild(guild, isLast) {
+			if (!guild) return BDFDB.ReactUtils.createElement("div", {
+				className: BDFDB.disCN.guildsummaryemptyguild
+			});
+			let icon = BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.GuildComponents.Icon, {
+				className: BDFDB.disCN.guildsummaryicon,
+				guild: guild,
+				size: InternalComponents.LibraryComponents.GuildComponents.Icon.Sizes.SMALLER
+			});
+			icon = this.props.tooltip ? BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.TooltipContainer, {
+				text: guild.name,
+				children: icon
+			}) : icon;
+			return this.props.switchOnClick ? BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.Clickable, {
+				className: BDFDB.disCN.guildsummaryclickableicon,
+				onClick: _ => {LibraryModules.SelectChannelUtils.selectChannel(guild.id, LibraryModules.LastChannelStore.getChannelId(guild.id));},
+				key: guild.id,
+				tabIndex: -1,
+				children: icon
+			}) : icon;
+		}
+        renderGuilds() {
+			let elements = [];
+			let renderGuild = typeof this.props.renderGuild != "function" ? this.defaultRenderGuild : this.props.renderGuild;
+			let loaded = 0, max = this.props.guilds.length === this.props.max ? this.props.guilds.length : this.props.max - 1;
+            while (loaded < max && loaded < this.props.guilds.length) {
+                let isLast = loaded === this.props.guilds.length - 1;
+                let guild = renderGuild.apply(this, [this.props.guilds[loaded], isLast]);
+                elements.push(BDFDB.ReactUtils.createElement("div", {
+					className: isLast ? BDFDB.disCN.guildsummaryiconcontainer : BDFDB.disCN.guildsummaryiconcontainermasked,
+					children: guild
+				}));
+                loaded++;
+            }
+            if (loaded < this.props.guilds.length) {
+                let rest = Math.min(this.props.guilds.length - loaded, 99);
+                elements.push(BDFDB.ReactUtils.createElement(LibraryModules.React.Fragment, {
+					key: "more-guilds",
+					children: this.props.renderMoreGuilds("+" + rest, rest, this.props.guilds.slice(loaded), this.props)
+				}));
+            }
+            return elements;
+        }
+        renderIcon() {
+            return this.props.renderIcon ? BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.SvgIcon, {
+				name: InternalComponents.LibraryComponents.SvgIcon.Names.WHATISTHIS,
+                className: BDFDB.disCN.guildsummarysvgicon
+            }) : null;
+        }
+        render() {
+            return BDFDB.ReactUtils.createElement("div", {
+				className: BDFDB.DOMUtils.formatClassName(this.props.className, BDFDB.disCN.guildsummarycontainer),
+				ref: this.props._ref,
+				children: [
+					this.renderIcon.apply(this),
+					this.renderGuilds.apply(this)
+				].flat(10).filter(n => n)
+			});
+        }
+    }
+	InternalBDFDB.setDefaultProps(InternalComponents.LibraryComponents.GuildSummaryItem, {max:10, renderMoreGuilds: (count, amount, restGuilds, props) => {
+		let icon = BDFDB.ReactUtils.createElement("div", {className: BDFDB.disCN.guildsummarymoreguilds, children: count});
+		return props.tooltip ? BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.TooltipContainer, {
+			text: restGuilds.map(guild => guild.name).join(", "),
+			children: icon
+		}) : icon;
+	}, renderIcon:false});
+	
 	InternalComponents.LibraryComponents.HeaderBarComponents = BDFDB.ModuleUtils.findByName("HeaderBarContainer");
 	
 	InternalComponents.LibraryComponents.KeybindRecorder = InternalBDFDB.loadPatchedComp("KeybindRecorder") || reactInitialized && class BDFDB_KeybindRecorder extends LibraryModules.React.Component {
@@ -8303,6 +8491,8 @@
 		}
 	};
 	
+	InternalComponents.LibraryComponents.Mask = BDFDB.ModuleUtils.findByName("Mask");
+	
 	InternalComponents.LibraryComponents.MemberRole = InternalBDFDB.loadPatchedComp("MemberRole") || reactInitialized && class BDFDB_MemberRole extends LibraryModules.React.Component {
 		handleClick(e) {if (typeof this.props.onClick == "function") this.props.onClick(e, this);}
 		handleContextMenu(e) {if (typeof this.props.onContextMenu == "function") this.props.onContextMenu(e, this);}
@@ -8365,7 +8555,6 @@
 			let isString = typeof this.props.icon == "string";
 			return !this.props.icon ? null : BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.SvgIcon, {
 				className: BDFDB.disCN.menuicon,
-				nativeClass: true,
 				iconSVG: isString ? this.props.icon : null,
 				name: !isString ? this.props.icon : null
 			});
@@ -8621,7 +8810,7 @@
 	InternalComponents.LibraryComponents.PopoutContainer = InternalBDFDB.loadPatchedComp("PopoutContainer") || reactInitialized && class BDFDB_PopoutContainer extends LibraryModules.React.Component {
 		handleRender(e) {
 			let children = typeof this.props.renderPopout == "function" ? this.props.renderPopout(this) : null;
-			return this.popout = !children ? null : (!this.props.wrap ? children : BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.Popout, BDFDB.ObjectUtils.exclude(Object.assign({}, this.props, {
+			return this.context.popout = !children ? null : (!this.props.wrap ? children : BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.Popout, BDFDB.ObjectUtils.exclude(Object.assign({}, this.props, {
 				className: this.props.popoutClassName,
 				containerInstance: this,
 				isChild: true,
@@ -8632,12 +8821,12 @@
 			}), "popoutStyle", "popoutClassName")));
 		}
 		componentDidMount() {
-			let basepopout = BDFDB.ReactUtils.findOwner(this, {name:"BasePopout"});
-			if (!basepopout || !basepopout.handleClick) return;
-			basepopout.isBDFDBpopout = true;
-			this.handleClick = e => {return basepopout.handleClick(BDFDB.ObjectUtils.is(e) ? e : (new MouseEvent({})));};
-			this.close = basepopout.close;
-			this.domElementRef = basepopout.domElementRef;
+			let basePopout = BDFDB.ReactUtils.findOwner(this, {name:"BasePopout"});
+			if (!basePopout || !basePopout.handleClick) return;
+			basePopout.isBDFDBpopout = true;
+			this.handleClick = e => {return basePopout.handleClick(BDFDB.ObjectUtils.is(e) ? e : (new MouseEvent({})));};
+			this.close = basePopout.close;
+			this.domElementRef = basePopout.domElementRef;
 		}
 		render() {
 			let child = (BDFDB.ArrayUtils.is(this.props.children) ? this.props.children[0] : this.props.children) || BDFDB.ReactUtils.createElement("div", {style: {height: "100%", width: "100%"}});
@@ -8710,7 +8899,7 @@
 													action: selected ? null : event2 => {
 														this.handleChange.bind(this)(option)
 													}
-												})
+												});
 											})
 										})
 									});
@@ -8898,9 +9087,9 @@
 		}
 		render() {
 			if (typeof this.props.type != "string" || !["BUTTON", "SELECT", "SWITCH", "TEXTINPUT"].includes(this.props.type.toUpperCase())) return null;
-			let childcomponent = InternalComponents.LibraryComponents[this.props.type];
-			if (!childcomponent) return null;
-			if (this.props.mini && childcomponent.Sizes) this.props.size = childcomponent.Sizes.MINI || childcomponent.Sizes.MIN;
+			let childComponent = InternalComponents.LibraryComponents[this.props.type];
+			if (!childComponent) return null;
+			if (this.props.mini && childComponent.Sizes) this.props.size = childComponent.Sizes.MINI || childComponent.Sizes.MIN;
 			return BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.Flex, {
 				className: BDFDB.DOMUtils.formatClassName(this.props.className, this.props.disabled && BDFDB.disCN.disabled),
 				id: this.props.id,
@@ -8932,7 +9121,7 @@
 								shrink: this.props.basis ? 0 : 1,
 								basis: this.props.basis,
 								wrap: true,
-								children: BDFDB.ReactUtils.createElement(childcomponent, BDFDB.ObjectUtils.exclude(Object.assign(BDFDB.ObjectUtils.exclude(this.props, "className", "id", "type"), this.props.childProps, {onChange: this.handleChange.bind(this)}), "grow", "stretch", "basis", "dividerbottom", "dividertop", "label", "labelClassName", "labelchildren", "tag", "mini", "note", "childProps"))
+								children: BDFDB.ReactUtils.createElement(childComponent, BDFDB.ObjectUtils.exclude(Object.assign(BDFDB.ObjectUtils.exclude(this.props, "className", "id", "type"), this.props.childProps, {onChange: this.handleChange.bind(this)}), "grow", "stretch", "basis", "dividerbottom", "dividertop", "label", "labelClassName", "labelchildren", "tag", "mini", "note", "childProps"))
 							})
 						].flat(10).filter(n => n)
 					}),
@@ -9043,7 +9232,7 @@
 						})).flat(10).filter(n => n)
 					})
 				]
-			}), "title", "data", "settings", "renderLabel", "cardClassName", "cardStyle", "onCheckboxChange", "maxWidth", "fullWidth", "pagination"));
+			}), "title", "data", "settings", "renderLabel", "cardClassName", "cardStyle", "onCheckboxChange", "maxWidth", "fullWidth", "biggestWidth", "pagination"));
 			let header = BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.Flex, {
 				className: BDFDB.disCN.settingstableheaders,
 				align: InternalComponents.LibraryComponents.Flex.Align.STRETCH,
@@ -9090,14 +9279,14 @@
 			let option = keys.shift();
 			if (BDFDB.ObjectUtils.is(this.props.plugin) && option) {
 				let data = BDFDB.DataUtils.load(this.props.plugin, option);
-				let newdata = "";
-				for (let key of keys) newdata += `{"${key}":`;
+				let newData = "";
+				for (let key of keys) newData += `{"${key}":`;
 				value = value != null && value.value != null ? value.value : value;
 				let isString = typeof value == "string";
 				let marker = isString ? `"` : ``;
-				newdata += (marker + (isString ? value.replace(/\\/g, "\\\\") : value) + marker) + "}".repeat(keys.length);
-				newdata = JSON.parse(newdata);
-				BDFDB.DataUtils.save(BDFDB.ObjectUtils.is(newdata) ? BDFDB.ObjectUtils.deepAssign({}, data, newdata) : newdata, this.props.plugin, option);
+				newData += (marker + (isString ? value.replace(/\\/g, "\\\\") : value) + marker) + "}".repeat(keys.length);
+				newData = JSON.parse(newData);
+				BDFDB.DataUtils.save(BDFDB.ObjectUtils.is(newData) ? BDFDB.ObjectUtils.deepAssign({}, data, newData) : newData, this.props.plugin, option);
 				this.props.plugin.SettingsUpdated = true;
 			}
 			if (typeof this.props.onChange == "function") this.props.onChange(value, this);
@@ -9106,7 +9295,7 @@
 			if (typeof this.props.type != "string" || !["SELECT", "SWITCH", "TEXTINPUT"].includes(this.props.type.toUpperCase())) return null;
 			return BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.SettingsItem, BDFDB.ObjectUtils.exclude(Object.assign({}, this.props, {
 				onChange: this.saveSettings.bind(this)
-			}), "keys", "plugin"));
+			}), "keys", "key", "plugin"));
 		}
 	};
 	
@@ -9203,15 +9392,32 @@
 		}
 	};
 	InternalComponents.LibraryComponents.SvgIcon.Names = {
+		ARROW_DOWN: {
+			defaultProps: {
+				width: 18,
+				height: 18
+			},
+			icon: `<svg name="ArrowDown" aria-hidden="false" width="%%width" height="%%height" viewBox="0 0 18 18"><path fill="%%color" d="M4 7l5 5 5-5H4z"></path></svg>`
+		},
+		ARROW_UP: {
+			defaultProps: {
+				width: 18,
+				height: 18
+			},
+			icon: `<svg name="ArrowUp" aria-hidden="false" width="%%width" height="%%height" viewBox="0 0 18 18"><path fill="%%color" d="M4 11l5-5 5 5H4z"></path></svg>`
+		},
 		CHANGELOG: {
-			icon: `<svg name="ChangeLog" viewBox="0 0 24 24" fill="%%color" width="%%width" height="%%height"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"></path></svg>`
+			icon: `<svg name="ChangeLog" fill="%%color" width="%%width" height="%%height" viewBox="0 0 24 24"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"></path></svg>`
+		},
+		WHATISTHIS: {
+			icon: `<svg name="ChangeLog" width="%%width" height="%%height" viewBox="0 0 24 24"><path fill="%%color" fill-rule="evenodd" clip-rule="evenodd" d="M11.383 3.07904C11.009 2.92504 10.579 3.01004 10.293 3.29604L6 8.00204H3C2.45 8.00204 2 8.45304 2 9.00204V15.002C2 15.552 2.45 16.002 3 16.002H6L10.293 20.71C10.579 20.996 11.009 21.082 11.383 20.927C11.757 20.772 12 20.407 12 20.002V4.00204C12 3.59904 11.757 3.23204 11.383 3.07904ZM14 5.00195V7.00195C16.757 7.00195 19 9.24595 19 12.002C19 14.759 16.757 17.002 14 17.002V19.002C17.86 19.002 21 15.863 21 12.002C21 8.14295 17.86 5.00195 14 5.00195ZM14 9.00195C15.654 9.00195 17 10.349 17 12.002C17 13.657 15.654 15.002 14 15.002V13.002C14.551 13.002 15 12.553 15 12.002C15 11.451 14.551 11.002 14 11.002V9.00195Z"></path></svg>`
 		},
 		CHECKBOX: {
 			defaultProps: {
 				background: "",
 				foreground: ""
 			},
-			icon: `<svg aria-hidden="false" width="24" height="24" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.37499 3H18.625C19.9197 3 21.0056 4.08803 21 5.375V18.625C21 19.936 19.9359 21 18.625 21H5.37499C4.06518 21 3 19.936 3 18.625V5.375C3 4.06519 4.06518 3 5.37499 3Z" class="%%background" fill="%%color"></path><path d="M9.58473 14.8636L6.04944 11.4051L4.50003 12.9978L9.58473 18L19.5 8.26174L17.9656 6.64795L9.58473 14.8636Z" class="%%foreground" fill="%%color"></path></svg>`
+			icon: `<svg aria-hidden="false" width="%%width" height="%%height" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.37499 3H18.625C19.9197 3 21.0056 4.08803 21 5.375V18.625C21 19.936 19.9359 21 18.625 21H5.37499C4.06518 21 3 19.936 3 18.625V5.375C3 4.06519 4.06518 3 5.37499 3Z" class="%%background" fill="%%color"></path><path d="M9.58473 14.8636L6.04944 11.4051L4.50003 12.9978L9.58473 18L19.5 8.26174L17.9656 6.64795L9.58473 14.8636Z" class="%%foreground" fill="%%color"></path></svg>`
 		},
 		CHECKBOX_EMPTY: {
 			defaultProps: {
@@ -9354,15 +9560,13 @@
 			return BDFDB.ReactUtils.createElement(InternalComponents.NativeSubComponents.TabBar, BDFDB.ObjectUtils.exclude(Object.assign({}, this.props, {
 				selectedItem: selectedItem,
 				onItemSelect: this.handleItemSelect.bind(this),
-				children: items.map(data => {
-					return BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.TabBar.Item, {
-						className: BDFDB.DOMUtils.formatClassName(this.props.itemClassName, selectedItem == data.value && this.props.itemSelectedClassName),
-						itemType: this.props.type,
-						id: data.value,
-						children: renderItem(data),
-						"aria-label": data.label || data.value
-					})
-				})
+				children: items.map(data => BDFDB.ReactUtils.createElement(InternalComponents.LibraryComponents.TabBar.Item, {
+					className: BDFDB.DOMUtils.formatClassName(this.props.itemClassName, selectedItem == data.value && this.props.itemSelectedClassName),
+					itemType: this.props.type,
+					id: data.value,
+					children: renderItem(data),
+					"aria-label": data.label || data.value
+				}))
 			}), "itemClassName", "items", "renderItem"));
 		}
 	};
@@ -9371,11 +9575,9 @@
 		render() {
 			return BDFDB.ReactUtils.createElement(InternalComponents.NativeSubComponents.Table, Object.assign({}, this.props, {
 				className: BDFDB.DOMUtils.formatClassName(BDFDB.disCN.table, this.props.className),
-				headerClassName: BDFDB.DOMUtils.formatClassName(this.props.stickyHeader ? BDFDB.disCN.tablestickyheader : BDFDB.disCN.tableheader, this.props.headerClassName),
 				headerCellClassName: BDFDB.DOMUtils.formatClassName(BDFDB.disCN.tableheadercell, this.props.headerCellClassName),
 				sortedHeaderCellClassName: BDFDB.DOMUtils.formatClassName(BDFDB.disCN.tableheadercellsorted, this.props.sortedHeaderCellClassName),
 				bodyCellClassName: BDFDB.DOMUtils.formatClassName(BDFDB.disCN.tablebodycell, this.props.bodyCellClassName),
-				rowClassName: BDFDB.DOMUtils.formatClassName(BDFDB.disCN.tablerow, this.props.rowClassName),
 				onSort: (sortKey, sortDirection) => {
 					this.props.sortDirection = this.props.sortKey != sortKey && sortDirection == InternalComponents.LibraryComponents.Table.SortDirection.ASCENDING && this.props.columns.filter(n => n.key == sortKey)[0].reverse ? InternalComponents.LibraryComponents.Table.SortDirection.DESCENDING : sortDirection;
 					this.props.sortKey = sortKey;
@@ -9765,6 +9967,24 @@
 			filter: grayscale(100%) brightness(50%);
 		}
 		
+		${BDFDB.dotCN.guildslabel} {
+			color: var(--text-muted);
+			text-align: center;
+			text-transform: uppercase;
+			font-size: 10px;
+			font-weight: 500;
+			line-height: 1.3;
+			width: 70px;
+			word-wrap: normal;
+			white-space: nowrap;
+		}
+		${BDFDB.dotCN.guildslabel}:hover {
+			color: var(--header-secondary);
+		}
+		${BDFDB.dotCN.guildslabel}:active {
+			color: var(--header-primary);
+		}
+		
 		${BDFDB.dotCN.searchbarwrapper} {
 			padding: 10px;
 		}
@@ -9856,6 +10076,10 @@
 		${BDFDB.dotCN.themelight} [class*='topSection']${BDFDB.notCNS.userprofiletopsectionnormal + BDFDB.dotCN.userinfodate},
 		${BDFDB.dotCN.themedark} [class*='topSection'] ${BDFDB.dotCN.userinfodate} {
 			color: hsla(0,0%,100%,.6);
+		}
+		
+		${BDFDB.dotCN.avatardisabled} {
+			filter: grayscale(100%) brightness(50%);
 		}
 		
 		${BDFDB.dotCN.messageavatar + BDFDB.dotCNS.bdfdbbadgeavatar + BDFDB.dotCN.avatarwrapper} {
@@ -9978,28 +10202,83 @@
 			opacity: 1;
 		}
 		
+		${BDFDB.dotCN.guildsummarycontainer} {
+			display: -webkit-box;
+			display: -ms-flexbox;
+			display: flex;
+			-webkit-box-align: center;
+			-ms-flex-align: center;
+			align-items: center;
+		}
+		${BDFDB.dotCN.guildsummarysvgicon} {
+			-webkit-box-flex: 0;
+			-ms-flex: 0 0 auto;
+			flex: 0 0 auto;
+			color: var(--text-muted);
+			width: 20px;
+			height: 20px;
+			margin-right: 8px;
+		}
+		${BDFDB.dotCN.guildsummaryiconcontainer} {
+			width: 24px;
+			height: 24px;
+		}
+		${BDFDB.dotCN.guildsummaryiconcontainermasked} {
+			margin-right: -4px;
+			-webkit-mask: url('data:image/svg+xml; utf8, <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" viewBox="0 0 1 1"><path fill="white" d="M 0 0 L 0 1 L 1 1 L 1 0.99804688 A 0.54166669 0.54166669 0 0 1 0.66601562 0.5 A 0.54166669 0.54166669 0 0 1 1 0.001953125 L 1 0 L 0 0 z"/></svg>') center/cover no-repeat;
+		}
+		${BDFDB.dotCN.guildsummaryclickableicon} {
+			cursor: pointer;
+		}
+		${BDFDB.dotCN.guildsummaryicon},
+		${BDFDB.dotCN.guildsummaryclickableicon},
+		${BDFDB.dotCN.guildsummaryemptyguild} {
+			width: 24px;
+			height: 24px;
+			border-radius: 50%;
+		}
+		${BDFDB.dotCN.guildsummaryemptyguild} {
+			background: var(--background-accent);
+		}
+		${BDFDB.dotCN.guildsummarymoreguilds} {
+			-webkit-box-sizing: border-box;
+			box-sizing: border-box;
+			background-color: var(--background-tertiary);
+			font-size: 12px;
+			line-height: 24px;
+			font-weight: 500;
+			text-align: center;
+			color: var(--text-normal);
+			height: 24px;
+			min-width: 24px;
+			border-radius: 12px;
+			padding: 0 8px;
+		}
+		
 		${BDFDB.dotCN.table} {
+			position: relative;
 			width: 100%;
 		}
-		${BDFDB.dotCN.tableheader} {
+		${BDFDB.dotCNS.table + BDFDB.dotCN.tablespacerheader},
+		${BDFDB.dotCNS.table + BDFDB.dotCN.tablestickyheader} {
 			padding: 0px 12px 8px 0;
 			margin-bottom: 5px;
-			font-size: 12px;
-			font-weight: 600;
 			box-sizing: border-box;
 			background-color: var(--background-primary);
 			border-bottom: 1px solid var(--background-modifier-accent);
 		}
-		${BDFDB.dotCN.tablestickyheader}:first-child {
+		${BDFDB.dotCNS.table + BDFDB.dotCN.tablestickyheader}:first-child {
 			position: absolute;
 			width: 100%;
 		}
-		${BDFDB.dotCNS.modalsub + BDFDB.dotCN.tablestickyheader}:first-child {
+		${BDFDB.dotCNS.modalsub + BDFDB.dotCNS.table + BDFDB.dotCN.tablestickyheader}:first-child {
 			padding-left: 20px;
 		}
 		${BDFDB.dotCN.tableheadercell} {
-			text-transform: uppercase;
 			color: var(--interactive-normal);
+			font-size: 12px;
+			font-weight: 600;
+			text-transform: uppercase;
 		}
 		${BDFDB.dotCN.tableheadercell},
 		${BDFDB.dotCN.tablebodycell} {
@@ -10012,16 +10291,7 @@
 			border-left: none;
 			padding-left: 0;
 		}
-		${BDFDB.dotCN.tableheadercellsorted},
-		${BDFDB.dotCN.tableheadercellsorted}:hover {
-			color: var(--interactive-active);
-		}
-		${BDFDB.dotCN.tableheadersorticon} {
-			width: 18px;
-			height: 18px;
-			margin-left: 4px;
-		}
-		${BDFDB.dotCN.tablerow} {
+		${BDFDB.dotCNS.table + BDFDB.dotCN.tablerow} {
 			position: relative;
 			display: flex;
 			margin-bottom: 5px;
@@ -10066,6 +10336,7 @@
 		}
 		${BDFDB.dotCN.settingstableheaders} {
 			margin-right: 10px;
+			margin-left: 10px;
 		}
 		
 		${BDFDB.dotCNS.popoutwrapper + BDFDB.dotCN.messagespopouttabbarheader} {
@@ -10245,11 +10516,9 @@
 			border-top-color: #2f3136;
 		}
 		${BDFDB.dotCN.popoutthemedpopout} {
-			background-color: #fff;
-			border: 1px solid hsla(0,0%,74.9%,.3);
-			-webkit-box-shadow: 0 2px 10px 0 rgba(0,0,0,.1);
-			box-shadow: 0 2px 10px 0 rgba(0,0,0,.1);
-			-webkit-box-sizing: border-box;
+			background-color: var(--background-secondary);
+			-webkit-box-shadow: var(--elevation-stroke),var(--elevation-high);
+			box-shadow: var(--elevation-stroke),var(--elevation-high);
 			box-sizing: border-box;
 			border-radius: 5px;
 			display: -webkit-box;
@@ -10259,12 +10528,6 @@
 			-webkit-box-direction: normal;
 			-ms-flex-direction: column;
 			flex-direction: column;
-		}
-		${BDFDB.dotCNS.themedark + BDFDB.dotCN.popoutthemedpopout} {
-			background-color: #2f3136;
-			border: 1px solid rgba(28,36,43,.6);
-			-webkit-box-shadow: 0 2px 10px 0 rgba(0,0,0,20%);
-			box-shadow: 0 2px 10px 0 rgba(0,0,0,.2);
 		}
 		${BDFDB.dotCN.popoutwrapper + BDFDB.dotCNS.popoutarrowalignmentmiddle + BDFDB.dotCN.popoutthemedpopout},
 		${BDFDB.dotCN.popoutwrapper + BDFDB.dotCNS.popoutarrowalignmenttop + BDFDB.dotCN.popoutthemedpopout} {
@@ -10751,8 +11014,9 @@
 			}
 		}
 	};
-	InternalBDFDB._processAvatarMount = function (user, avatar, position = "top") {
+	InternalBDFDB._processAvatarMount = function (user, avatar, wrapper) {
 		if (Node.prototype.isPrototypeOf(avatar) && BDFDB.ObjectUtils.is(user)) {
+			if (wrapper) wrapper.setAttribute("user_by_BDFDB", user.id);
 			avatar.setAttribute("user_by_BDFDB", user.id);
 			let role = "", addBadge = settings.showSupportBadges;;
 			if (BDFDB_Patrons_T2.includes(user.id) && addBadge) {
@@ -10774,7 +11038,7 @@
 					if (BDFDB_Patrons_T3_hasBadge.includes(user.id)) avatar.setAttribute("custombadge_id", user.id);
 					let badge = document.createElement("div");
 					badge.className = BDFDB.disCN.bdfdbbadge;
-					badge.addEventListener("mouseenter", _ => {BDFDB.TooltipUtils.create(badge, role, {position});});
+					badge.addEventListener("mouseenter", _ => {BDFDB.TooltipUtils.create(badge, role, {position: "top"});});
 					avatar.style.setProperty("position", "relative");
 					avatar.style.setProperty("overflow", "visible");
 					avatar.style.setProperty("border-radius", 0);
@@ -10803,10 +11067,10 @@
 		InternalBDFDB._processAvatarMount(e.instance.props.user, e.node.querySelector(BDFDB.dotCN.avatarwrapper));
 	};
 	InternalBDFDB.processUserPopout = function (e) {
-		InternalBDFDB._processAvatarMount(e.instance.props.user, e.node.querySelector(BDFDB.dotCN.userpopoutavatarwrapper));
+		InternalBDFDB._processAvatarMount(e.instance.props.user, e.node.querySelector(BDFDB.dotCN.userpopoutavatarwrapper), e.node);
 	};
 	InternalBDFDB.processUserProfile = function (e) {
-		InternalBDFDB._processAvatarMount(e.instance.props.user, e.node.querySelector(BDFDB.dotCN.avatarwrapper));
+		InternalBDFDB._processAvatarMount(e.instance.props.user, e.node.querySelector(BDFDB.dotCN.avatarwrapper), e.node);
 	};
 	InternalBDFDB.processDiscordTag = function (e) {
 		if (e.instance && e.instance.props && e.returnvalue && e.instance.props.user) e.returnvalue.props.user = e.instance.props.user;
@@ -10830,7 +11094,7 @@
 		delete e.returnvalue.props.userId;
 	};
 	
-	const ContextMenuTypes = ["UserSettingsCog", "User", "Developer", "Slate", "GuildFolder", "GroupDM", "SystemMessage", "Message", "Native", "Guild", "Channel"];
+	const ContextMenuTypes = ["UserSettingsCog", "User", "Developer", "Slate", "GuildFolder", "GroupDM", "SystemMessage", "Message", "Native", "Role", "Guild", "Channel"];
 	const QueuedComponents = BDFDB.ArrayUtils.removeCopies([].concat(ContextMenuTypes.map(n => n + "ContextMenu"), ["GuildHeaderContextMenu", "MessageOptionContextMenu", "MessageOptionToolbar"]));	
 	InternalBDFDB.addContextListeners = function (plugin) {
 		plugin = plugin == BDFDB && InternalBDFDB || plugin;

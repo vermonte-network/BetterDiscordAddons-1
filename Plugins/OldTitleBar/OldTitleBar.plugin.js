@@ -38,10 +38,15 @@ var OldTitleBar = (_ => {
 				
 				.platform-osx ${BDFDB.dotCNS._oldtitlebarenabled + BDFDB.dotCN.guildswrapper} {
 					margin-top: 0;
+					padding-top: 0;
 				}
 
 				.platform-osx ${BDFDB.dotCNS._oldtitlebarenabled + BDFDB.dotCN.guildsscroller} {
 					padding-top: 4px;
+				}
+				
+				.platform-osx ${BDFDB.dotCNS._oldtitlebarenabled + BDFDB.dotCN.settingswindowstandardsidebarview}:before {
+					display: none;
 				}
 				
 				${BDFDB.dotCN._oldtitlebartoolbar} {
@@ -121,7 +126,9 @@ var OldTitleBar = (_ => {
 		}
 
 		// Legacy
-		load () {}
+		load () {
+			if (window.BDFDB && typeof BDFDB === "object" && BDFDB.loaded) BDFDB.PluginUtils.load(this);
+		}
 
 		start () {
 			if (!window.BDFDB) window.BDFDB = {myPlugins:{}};

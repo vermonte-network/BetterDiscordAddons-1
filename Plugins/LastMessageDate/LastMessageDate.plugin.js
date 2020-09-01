@@ -198,7 +198,9 @@ var LastMessageDate = (_ => {
 		}
 
 		// Legacy
-		load () {}
+		load () {
+			if (window.BDFDB && typeof BDFDB === "object" && BDFDB.loaded) BDFDB.PluginUtils.load(this);
+		}
 
 		start () {
 			if (!window.BDFDB) window.BDFDB = {myPlugins:{}};
@@ -326,7 +328,7 @@ var LastMessageDate = (_ => {
 		
 		getTimestamp (languageId, time) {
 			let timeObj = time || new Date();
-			if (typeof time == "string") timeObj = new Date(time);
+			if (typeof time == "string" || typeof time == "number") timeObj = new Date(time);
 			if (timeObj.toString() == "Invalid Date") timeObj = new Date(parseInt(time));
 			if (timeObj.toString() == "Invalid Date") return;
 			let timeString = "";
