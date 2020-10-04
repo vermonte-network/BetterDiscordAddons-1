@@ -4419,6 +4419,8 @@
 		toolbar: "toolbar-hRzFw-"
 	};
 	DiscordClassModules.OwnerTag = {
+		administrationIcon: "administration-Se4Yb",
+		moderationIcon: "moderation-Ld2Iw",
 		adminIcon: "admin-Kv1Hp_",
 		managementIcon: "management-3fF_o8",
 		ownerIcon: "owner-FfFh3B-"
@@ -4828,6 +4830,8 @@
 		_oldtitlebartoolbar: ["OldTitleBar", "toolbar"],
 		_ownertagadminicon: ["OwnerTag", "adminIcon"],
 		_ownertagmanagementicon: ["OwnerTag", "managementIcon"],
+		_ownertagadministrationicon: ["OwnerTag", "administrationIcon"],
+		_ownertagmoderationicon: ["OwnerTag", "moderationIcon"],
 		_ownertagownericon: ["OwnerTag", "ownerIcon"],
 		_pindmsdragpreview: ["PinDMs", "dragPreview"],
 		_pindmsdmchannelpinned: ["PinDMs", "dmChannelPinned"],
